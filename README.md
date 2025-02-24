@@ -23,7 +23,7 @@ jobs:
     # ... some project-specific build steps ...
 
     - name: Upload web build
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-pages-artifact@v3
       with:
         name: web
         path: build/web
@@ -31,11 +31,31 @@ jobs:
     - name: Deploy to GitHub Pages
       uses: actions/deploy-pages@v4
       with:
-        ?????
+        artifact_name: web
 ```
 
-Remove the `actions/deploy-pages` step from your export workflow. Add a new
-workflow looking like this:
+Remove the `actions/deploy-pages` step from your export workflow, and change the
+`actions/upload-pages-artifact` step to `actions/upload-pages-artifact`:
+
+```yaml
+# .github/workflows/export.yml
+name: Export Web Build
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+jobs:
+  build:
+    # ... some project-specific build steps ...
+    - name: Upload web build
+      uses: actions/upload-artifact@v4
+      with:
+        name: web
+        path: build/web
+```
+
+Add a new workflow looking like this:
 
 ```yaml
 # .github/workflows/publish.yml
