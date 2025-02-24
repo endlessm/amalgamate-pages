@@ -11,6 +11,9 @@ runs:
   using: composite
   steps:
     - uses: astral-sh/setup-uv@v5
+      with:
+        cache-dependency-glob: "${{ github.action_path }}/uv.lock"
+        pyproject-file: "${{ github.action_path }}/pyproject.toml"
 
     - uses: actions/setup-python@v5
       with:
@@ -19,8 +22,8 @@ runs:
     - name: Assemble site from all live branches
       id: assemble
       shell: bash
+      working-directory: ${{ github.action_path }}
       run: |
-        cd ${{ github.action_path }}
         uv run --frozen godoctopus.py
       env:
         GITHUB_TOKEN: ${{ github.token }}
