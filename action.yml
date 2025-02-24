@@ -11,6 +11,8 @@ runs:
   using: composite
   steps:
     - uses: astral-sh/setup-uv@v5
+      with:
+        pyproject-file: "${{ github.action_path }}/pyproject.toml"
 
     - uses: actions/setup-python@v5
       with:
