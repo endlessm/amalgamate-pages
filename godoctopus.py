@@ -104,7 +104,9 @@ def main():
     )
 
     repo_details = get_repo_details(session, repo)
-    default_branch = "/".join((repo_details['owner']['login'], repo_details["default_branch"]))
+    default_branch = "/".join(
+        (repo_details["owner"]["login"], repo_details["default_branch"])
+    )
     workflow = find_workflow(session, repo, workflow_name)
     web_artifacts = find_latest_artifacts(session, repo, workflow["id"], artifact_name)
 
