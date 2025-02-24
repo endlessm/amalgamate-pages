@@ -1,0 +1,11 @@
+[project]
+name = "amalgamate-pages"
+version = "0.1.0"
+description = "Amalgamate builds from many branches into one GitHub Pages site"
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "jinja2>=3.1.5",
+    "requests>=2.28.1",
+]

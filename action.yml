@@ -1,0 +1,38 @@
+name: Amalgamate Pages
+description: Amalgamate builds from many branches into one GitHub Pages site
+inputs:
+  workflow_name:
+    description: Name of the workflow that produces artifacts for each branch
+    required: true
+  artifact_name:
+    description: Name of the artifact produced by the workflow
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@v5
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Assemble site from all live branches
+      id: assemble
+      shell: bash
+      run: |
+        cd ${{ github.action_path }}
+        uv run --frozen godoctopus.py
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        WORKFLOW_NAME: ${{ inputs.workflow_name }}
+        ARTIFACT_NAME: ${{ inputs.artifact_name }}
+
+    - name: Upload pages artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: ${{ steps.assemble.outputs.path }}
+
+    # TODO: output the artifact name and have the calling workflow do this?
+    - name: Deploy to GitHub Pages
+      uses: actions/deploy-pages@v4

@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang=en>
+<head>
+<meta charset=utf-8>
+<title>{{ title }}</title>
+</head>
+<body>
+<ul>
+{% for branch in branches %}
+    <li><a href="{{ branch.dir }}">{{ branch.name }}</a></li>
+{% endfor %}
+</ul>
+</body>
+</html>
