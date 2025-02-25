@@ -6,6 +6,17 @@ artifacts from different branches into a single site. The default branch is
 placed at the root of the site as normal; other branches live in a `/branches/`
 directory, with an index.
 
+## Example
+
+[Everlasting Candy](https://github.com/endlessm/everlasting-candy) is used in
+collaborative game-making programs, where (among other things) participants can
+gain experience with contributing to a community project via Git and GitHub.
+
+The `main` branch of the game can be played at
+<https://endlessm.github.io/everlasting-candy/>. Thanks to this action,
+work-in-progress branches can be previewed at
+<https://endlessm.github.io/everlasting-candy/branches/>.
+
 ## Usage
 
 Suppose you currently have the following workflow:
