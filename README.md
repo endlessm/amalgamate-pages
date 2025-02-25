@@ -109,3 +109,13 @@ concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: true
 ```
+
+## Limitations
+
+Currently, any branch for which an artifact is found will be included in the
+amalgamated site. This means:
+
+- Branches that have been merged into `main` will be included until their build
+  artifacts expire and something else triggers a rebuild of the site;
+- Unmerged branches whose artifacts have expired will not be included once the
+  site is rebuilt.
