@@ -127,12 +127,11 @@ def main():
         url = artifact["archive_download_url"]
         logging.info("Fetching %s export from %s", branch, url)
 
-        branch_quoted = urllib.parse.quote(branch)
-        branch_dir = branches_dir / branch_quoted
+        branch_dir = branches_dir / branch
         branch_dir.mkdir(parents=True)
         download_and_extract(session, url, branch_dir)
 
-        items.append({"dir": branch_quoted, "name": branch})
+        items.append({"relative_path": f"{branch}/", "name": branch})
 
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
