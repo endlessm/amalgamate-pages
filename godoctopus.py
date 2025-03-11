@@ -7,8 +7,14 @@ import zipfile
 import shutil
 import pathlib
 import logging
-import urllib.parse
 import jinja2
+import dataclasses
+
+
+@dataclasses.dataclass
+class Fork:
+    live_branches: set[str]
+    branch_artifacts: dict[str, dict]
 
 
 def _paginate(session, url, params=None, item_key=None):
@@ -44,36 +50,58 @@ def find_workflow(session, repo, workflow_name):
     raise ValueError(f"Workflow '{workflow_name}' not found")
 
 
+def list_branches(session, repo) -> set[str]:
+    return {
+        branch["name"]
+        for branch in _paginate(
+            session,
+            f"https://api.github.com/repos/{repo}/branches",
+        )
+    }
+
+
 def find_artifact(session, artifacts_url, artifact_name):
     for artifact in _paginate(session, artifacts_url, item_key="artifacts"):
         if artifact["name"] == artifact_name:
             return artifact
 
 
-def find_latest_artifacts(session, repo, workflow_id, artifact_name):
-    artifacts = {}
+def find_latest_artifacts(session, repo, workflow_id, artifact_name) -> dict[str, Fork]:
+    artifacts: dict[str, Fork] = {}
     for run in _paginate(
         session,
         f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_id}/runs",
         params={"status": "success"},
         item_key="workflow_runs",
     ):
-        artifact = find_artifact(session, run["artifacts_url"], artifact_name)
-        if not artifact or artifact["expired"]:
+        owner_label = run["head_repository"]["owner"]["login"]
+        try:
+            fork = artifacts[owner_label]
+        except KeyError:
+            live_branches = list_branches(session, run["head_repository"]["full_name"])
+            fork = Fork(live_branches=live_branches, branch_artifacts={})
+            artifacts[owner_label] = fork
+
+        branch = run["head_branch"]
+
+        if branch not in fork.live_branches:
+            logging.debug(
+                "Ignoring artifact for deleted branch %s/%s", owner_label, branch
+            )
             continue
 
-        owner_label = run["head_repository"]["owner"]["login"]
-        branch = run["head_branch"]
-        key = f"{owner_label}/{branch}"
-
         # Assumes response is sorted, newest to oldest
-        if key not in artifacts:
+        if branch not in fork.branch_artifacts:
+            artifact = find_artifact(session, run["artifacts_url"], artifact_name)
+            if not artifact or artifact["expired"]:
+                continue
+
             # TODO: You might hope that you could fetch
             # https://api.github.com/repos/{repo}/actions/runs/{artifact['workflow_run']['id']}
             # and inspect the pull_requests property to find the corresponding PR for each branch.
-            # But as discussed at # https://github.com/orgs/community/discussions/25220 that
+            # But as discussed at https://github.com/orgs/community/discussions/25220 that
             # property is always empty for builds from forks.
-            artifacts[key] = artifact
+            fork.branch_artifacts[branch] = artifact
 
     return artifacts
 
@@ -87,12 +115,13 @@ def download_and_extract(session, url, dest_dir):
 
 
 def main():
-    logging.basicConfig(level=logging.INFO)
-
+    debug = os.environ.get("DEBUG", "false").lower() == "true"
     api_token = os.environ["GITHUB_TOKEN"]
     repo = os.environ["GITHUB_REPOSITORY"]
     workflow_name = os.environ["WORKFLOW_NAME"]
     artifact_name = os.environ["ARTIFACT_NAME"]
+
+    logging.basicConfig(level=logging.DEBUG if debug else logging.INFO)
 
     session = requests.Session()
     session.headers.update(
@@ -104,9 +133,9 @@ def main():
     )
 
     repo_details = get_repo_details(session, repo)
-    default_branch = "/".join(
-        (repo_details["owner"]["login"], repo_details["default_branch"])
-    )
+    default_org = repo_details["owner"]["login"]
+    default_branch = repo_details["default_branch"]
+
     workflow = find_workflow(session, repo, workflow_name)
     web_artifacts = find_latest_artifacts(session, repo, workflow["id"], artifact_name)
 
@@ -114,24 +143,28 @@ def main():
     logging.info("Assembling site at %s", tmpdir)
 
     # Place default branch content at root of site
-    artifact = web_artifacts.pop(default_branch)
+    artifact = web_artifacts[default_org].branch_artifacts.pop(default_branch)
     url = artifact["archive_download_url"]
-    logging.info("Fetching %s export from %s", default_branch, url)
+    logging.info("Fetching %s export from %s/%s", default_org, default_branch, url)
     download_and_extract(session, url, tmpdir)
 
     items = []
     branches_dir = tmpdir / "branches"
     branches_dir.mkdir()
 
-    for branch, artifact in web_artifacts.items():
-        url = artifact["archive_download_url"]
-        logging.info("Fetching %s export from %s", branch, url)
+    for org, fork in web_artifacts.items():
+        for branch, artifact in fork.branch_artifacts.items():
+            url = artifact["archive_download_url"]
 
-        branch_dir = branches_dir / branch
-        branch_dir.mkdir(parents=True)
-        download_and_extract(session, url, branch_dir)
+            logging.info("Fetching %s/%s export from %s", org, branch, url)
 
-        items.append({"relative_path": f"{branch}/", "name": branch})
+            branch_dir = branches_dir / org / branch
+            branch_dir.mkdir(parents=True)
+            download_and_extract(session, url, branch_dir)
+
+            items.append(
+                {"relative_path": f"{org}/{branch}/", "name": f"{org}/{branch}"}
+            )
 
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
