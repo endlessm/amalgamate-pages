@@ -86,12 +86,13 @@ def download_and_extract(session, url, dest_dir):
 
 
 def main():
-    logging.basicConfig(level=logging.INFO)
-
+    debug = os.environ.get("DEBUG", "false").lower() == "true"
     api_token = os.environ["GITHUB_TOKEN"]
     repo = os.environ["GITHUB_REPOSITORY"]
     workflow_name = os.environ["WORKFLOW_NAME"]
     artifact_name = os.environ["ARTIFACT_NAME"]
+
+    logging.basicConfig(level=logging.DEBUG if debug else logging.INFO)
 
     session = requests.Session()
     session.headers.update(
