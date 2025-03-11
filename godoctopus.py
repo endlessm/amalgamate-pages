@@ -82,10 +82,6 @@ def find_latest_artifacts(session, repo, workflow_id, artifact_name) -> dict[str
             fork = Fork(live_branches=live_branches, branch_artifacts={})
             artifacts[owner_label] = fork
 
-        artifact = find_artifact(session, run["artifacts_url"], artifact_name)
-        if not artifact or artifact["expired"]:
-            continue
-
         branch = run["head_branch"]
 
         if branch not in fork.live_branches:
@@ -96,10 +92,14 @@ def find_latest_artifacts(session, repo, workflow_id, artifact_name) -> dict[str
 
         # Assumes response is sorted, newest to oldest
         if branch not in fork.branch_artifacts:
+            artifact = find_artifact(session, run["artifacts_url"], artifact_name)
+            if not artifact or artifact["expired"]:
+                continue
+
             # TODO: You might hope that you could fetch
             # https://api.github.com/repos/{repo}/actions/runs/{artifact['workflow_run']['id']}
             # and inspect the pull_requests property to find the corresponding PR for each branch.
-            # But as discussed at # https://github.com/orgs/community/discussions/25220 that
+            # But as discussed at https://github.com/orgs/community/discussions/25220 that
             # property is always empty for builds from forks.
             fork.branch_artifacts[branch] = artifact
 
