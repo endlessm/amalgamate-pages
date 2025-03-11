@@ -7,7 +7,6 @@ import zipfile
 import shutil
 import pathlib
 import logging
-import urllib.parse
 import jinja2
 
 
