@@ -9,6 +9,7 @@ import pathlib
 import logging
 import jinja2
 import dataclasses
+import hashlib
 
 
 @dataclasses.dataclass
@@ -106,6 +107,25 @@ def find_latest_artifacts(session, repo, workflow_id, artifact_name) -> dict[str
     return artifacts
 
 
+def symlinkify(dest_dir: pathlib.Path):
+    hashes: dict[bytes, pathlib.Path] = {}
+
+    for dirpath, dirnames, filenames in os.walk(dest_dir):
+        for filename in filenames:
+            path = dest_dir / dirpath / filename
+            with path.open("rb") as f:
+                hash = hashlib.sha256(f.read()).digest()
+                try:
+                    existing_file = hashes[hash]
+                except KeyError:
+                    hashes[hash] = path
+                else:
+                    target = existing_file.relative_to(path, walk_up=True)
+                    logging.debug("Symlinking %s to %s", path, target)
+                    path.unlink()
+                    path.symlink_to(target)
+
+
 def download_and_extract(session, url, dest_dir):
     with session.get(url, stream=True) as response:
         response.raise_for_status()
@@ -165,6 +185,8 @@ def main():
             items.append(
                 {"relative_path": f"{org}/{branch}/", "name": f"{org}/{branch}"}
             )
+
+    symlinkify(tmpdir)
 
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
