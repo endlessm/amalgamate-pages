@@ -18,6 +18,10 @@ class Fork:
 
 
 def _paginate(session, url, params=None, item_key=None):
+    if not params:
+        params = {}
+    params.setdefault("per_page", 100)
+
     while True:
         response = session.get(url, params=params)
         response.raise_for_status()
@@ -58,6 +62,24 @@ def list_branches(session, repo) -> set[str]:
             f"https://api.github.com/repos/{repo}/branches",
         )
     }
+
+
+def list_pull_requests(session, repo) -> dict[str, dict]:
+    branch_prs = {}
+
+    for pr in _paginate(
+        session,
+        f"https://api.github.com/repos/{repo}/pulls",
+        params={"state": "all"},
+    ):
+        branch_prs.setdefault(pr["head"]["label"], []).append(pr)
+
+    for prs in branch_prs.values():
+        # Sort open pull requests before closed ones, then more recently-updated
+        # ones before older ones.
+        prs.sort(key=lambda pr: (pr["state"] == "open", pr["updated_at"]), reverse=True)
+
+    return branch_prs
 
 
 def find_artifact(session, artifacts_url, artifact_name):
@@ -138,6 +160,7 @@ def main():
 
     workflow = find_workflow(session, repo, workflow_name)
     web_artifacts = find_latest_artifacts(session, repo, workflow["id"], artifact_name)
+    pull_requests = list_pull_requests(session, repo)
 
     tmpdir = pathlib.Path(tempfile.mkdtemp(prefix="godoctopus-"))
     logging.info("Assembling site at %s", tmpdir)
@@ -155,15 +178,26 @@ def main():
     for org, fork in web_artifacts.items():
         for branch, artifact in fork.branch_artifacts.items():
             url = artifact["archive_download_url"]
+            key = f"{org}:{branch}"
 
-            logging.info("Fetching %s/%s export from %s", org, branch, url)
+            logging.info("Fetching %s:%s export from %s", org, branch, url)
+            try:
+                branch_pr = pull_requests[key][0]
+            except (KeyError, IndexError):
+                branch_pr = None
 
+            # TODO: Use colon form in directory name, avoiding intermediate
+            # directory with no index?
             branch_dir = branches_dir / org / branch
             branch_dir.mkdir(parents=True)
             download_and_extract(session, url, branch_dir)
 
             items.append(
-                {"relative_path": f"{org}/{branch}/", "name": f"{org}/{branch}"}
+                {
+                    "relative_path": f"{org}/{branch}/",
+                    "name": f"{org}/{branch}",
+                    "pull_request": branch_pr,
+                }
             )
 
     env = jinja2.Environment(
