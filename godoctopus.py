@@ -18,6 +18,10 @@ class Fork:
 
 
 def _paginate(session, url, params=None, item_key=None):
+    if not params:
+        params = {}
+    params.setdefault("per_page", 100)
+
     while True:
         response = session.get(url, params=params)
         response.raise_for_status()
