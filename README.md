@@ -8,14 +8,14 @@ directory, with an index.
 
 ## Example
 
-[Everlasting Candy](https://github.com/endlessm/everlasting-candy) is used in
+[Candy Collective](https://github.com/endlessm/candy-collective) is used in
 collaborative game-making programs, where (among other things) participants can
 gain experience with contributing to a community project via Git and GitHub.
 
 The `main` branch of the game can be played at
-<https://endlessm.github.io/everlasting-candy/>. Thanks to this action,
+<https://endlessm.github.io/candy-collective/>. Thanks to this action,
 work-in-progress branches can be previewed at
-<https://endlessm.github.io/everlasting-candy/branches/>.
+<https://endlessm.github.io/candy-collective/branches/>.
 
 ## Usage
 
