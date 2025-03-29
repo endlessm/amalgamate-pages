@@ -12,3 +12,15 @@ dependencies = [
 
 [tool.uv]
 required-version = ">=0.5.0"
+
+[tool.mypy]
+python_version = "3.11"
+files = [
+    "godoctopus.py",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15.0",
+    "types-requests>=2.32.0.20250328",
+]
