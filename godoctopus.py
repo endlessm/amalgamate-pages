@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 
-import requests
+import dataclasses
+import logging
 import os
+import pathlib
+import shutil
 import tempfile
 import zipfile
-import shutil
-import pathlib
-import logging
+
 import jinja2
-import dataclasses
+import requests
 
 
 @dataclasses.dataclass
