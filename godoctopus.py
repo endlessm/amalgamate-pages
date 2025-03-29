@@ -65,8 +65,8 @@ def list_branches(session, repo) -> set[str]:
     }
 
 
-def list_pull_requests(session, repo) -> dict[str, dict]:
-    branch_prs = {}
+def list_pull_requests(session, repo) -> dict[str, list[dict]]:
+    branch_prs: dict[str, list[dict]] = {}
 
     for pr in _paginate(
         session,
