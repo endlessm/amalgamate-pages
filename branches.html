@@ -8,10 +8,24 @@
 <ul>
 {% for branch in branches %}
     <li>
-        <a href="{{ branch.relative_path | urlencode }}">{{ branch.name }}</a>
+        {% if branch.relative_path %}
+            <a href="{{ branch.relative_path | urlencode }}">{{ branch.name }}</a>
+        {% else %}
+            {{ branch.name }}
+        {% endif %}
         {% if branch.pull_request %}
             from pull request
             <a href="{{ branch.pull_request.url }}">#{{ branch.pull_request.number }}: {{ branch.pull_request.title }}</a>
+        {% endif %}
+        {% if not branch.build %}
+            (never built)
+        {% elif branch.build.artifact["expired"] %}
+            (build
+            expired
+            on
+            <time datetime="{{ branch.build.artifact["expires_at"] }}">{{
+                branch.build.artifact["expires_at"] | pretty_date_from_iso8601
+            }}</time>)
         {% endif %}
     </li>
 {% endfor %}
