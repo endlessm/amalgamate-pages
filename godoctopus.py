@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 
-import requests
+import dataclasses
+import logging
 import os
+import pathlib
+import shutil
 import tempfile
 import zipfile
-import shutil
-import pathlib
-import logging
+
 import jinja2
-import dataclasses
+import requests
 
 
 @dataclasses.dataclass
@@ -64,8 +65,8 @@ def list_branches(session, repo) -> set[str]:
     }
 
 
-def list_pull_requests(session, repo) -> dict[str, dict]:
-    branch_prs = {}
+def list_pull_requests(session, repo) -> dict[str, list[dict]]:
+    branch_prs: dict[str, list[dict]] = {}
 
     for pr in _paginate(
         session,
