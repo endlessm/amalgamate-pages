@@ -69,12 +69,21 @@ def find_workflow(session, repo, workflow_name):
 
 
 def list_branches(session, repo) -> list[dict]:
-    return list(
-        _paginate(
-            session,
-            f"https://api.github.com/repos/{repo}/branches",
+    try:
+        return list(
+            _paginate(
+                session,
+                f"https://api.github.com/repos/{repo}/branches",
+            )
         )
-    )
+    except requests.HTTPError as error:
+        if error.response.status_code != 404:
+            raise
+        logging.debug(
+            "404 when fetching branches for %s; assuming this fork was deleted",
+            repo,
+        )
+        return []
 
 
 def list_pull_requests(session, repo) -> dict[str, list[dict]]:
