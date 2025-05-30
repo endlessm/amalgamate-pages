@@ -223,9 +223,18 @@ def main() -> None:
             item: dict[str, Any] = {"name": f"{org}/{branch_name}"}
 
             try:
-                item["pull_request"] = pull_requests[f"{org}:{branch_name}"][0]
+                pull_request = pull_requests[f"{org}:{branch_name}"][0]
             except (KeyError, IndexError):
                 pass
+            else:
+                if pull_request["state"] == "closed":
+                    logging.info(
+                        "Ignoring branch %s; newest pull request %s is closed",
+                        item["name"],
+                        pull_request["url"],
+                    )
+                    continue
+                item["pull_request"] = pull_request
 
             if branch.build:
                 item["build"] = branch.build
