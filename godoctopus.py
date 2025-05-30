@@ -220,6 +220,12 @@ def main() -> None:
 
     for org, fork in web_artifacts.items():
         for branch_name, branch in fork.live_branches.items():
+            if not branch.build and org != default_org:
+                logging.debug(
+                    "Ignoring never-built third-party branch %s:%s", org, branch_name
+                )
+                continue
+
             item: dict[str, Any] = {"name": f"{org}/{branch_name}"}
 
             try:
