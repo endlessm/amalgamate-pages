@@ -281,14 +281,26 @@ class AmalgamatePages:
         logging.info("Site assembled at %s", tmpdir)
 
 
+def setup_logging() -> None:
+    log_format = "+ %(asctime)s %(levelname)s %(name)s: %(message)s"
+    date_format = "%H:%M:%S"
+
+    match os.environ.get("DEBUG", "false").lower():
+        case "true":
+            level = logging.DEBUG
+        case _:
+            level = logging.INFO
+
+    logging.basicConfig(level=level, format=log_format, datefmt=date_format)
+
+
 def main() -> None:
-    debug = os.environ.get("DEBUG", "false").lower() == "true"
     api_token = os.environ["GITHUB_TOKEN"]
     repo = os.environ["GITHUB_REPOSITORY"]
     workflow_name = os.environ["WORKFLOW_NAME"]
     artifact_name = os.environ["ARTIFACT_NAME"]
 
-    logging.basicConfig(level=logging.DEBUG if debug else logging.INFO)
+    setup_logging()
 
     amalgamate_pages = AmalgamatePages(api_token, repo, workflow_name, artifact_name)
     amalgamate_pages.run()
