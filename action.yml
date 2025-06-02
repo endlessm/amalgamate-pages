@@ -22,24 +22,39 @@ runs:
       with:
         python-version: '3.11'
 
+    - name: Restore HTTP request cache
+      uses: actions/cache/restore@v4
+      with:
+        path: http_cache.sqlite
+        key: http_cache
+        restore-keys: |
+          http_cache-
+
     - name: Assemble site from all live branches
       id: assemble
       shell: bash
-      working-directory: ${{ github.action_path }}
       run: |
-        uv run --frozen godoctopus.py
+        uv run --frozen ${{ github.action_path }}/godoctopus.py
       env:
         DEBUG: ${{ runner.debug }}
+        UV_PROJECT: ${{ github.action_path }}
         GITHUB_TOKEN: ${{ github.token }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         WORKFLOW_NAME: ${{ inputs.workflow_name }}
         ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        TARGET_DIR: _site
 
     - name: Upload pages artifact
       uses: actions/upload-pages-artifact@v3
-      with:
-        path: ${{ steps.assemble.outputs.path }}
 
     # TODO: output the artifact name and have the calling workflow do this?
     - name: Deploy to GitHub Pages
       uses: actions/deploy-pages@v4
+
+    - name: Save HTTP request cache
+      uses: actions/cache/save@v4
+      with:
+        path: http_cache.sqlite
+        # The cache key should actually be the state of the repository. This is
+        # hard to calculate, so instead we hash the generated site.
+        key: http_cache-${{ hashFiles('_site/**') }}
