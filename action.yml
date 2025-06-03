@@ -34,6 +34,7 @@ runs:
       run: |
         uv run --frozen ${{ github.action_path }}/godoctopus.py
       env:
+        DEBUG: ${{ runner.debug }}
         UV_PROJECT: ${{ github.action_path }}
         GITHUB_TOKEN: ${{ github.token }}
         GITHUB_REPOSITORY: ${{ github.repository }}
