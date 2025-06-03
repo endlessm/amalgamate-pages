@@ -286,7 +286,7 @@ def setup_logging() -> None:
     date_format = "%H:%M:%S"
 
     match os.environ.get("DEBUG", "false").lower():
-        case "true":
+        case "true" | "1":
             level = logging.DEBUG
         case _:
             level = logging.INFO
