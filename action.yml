@@ -29,6 +29,7 @@ runs:
       run: |
         uv run --frozen godoctopus.py
       env:
+        DEBUG: ${{ runner.debug }}
         GITHUB_TOKEN: ${{ github.token }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         WORKFLOW_NAME: ${{ inputs.workflow_name }}
