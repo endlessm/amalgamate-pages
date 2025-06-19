@@ -38,11 +38,12 @@ def pretty_date_from_iso8601(d: str) -> str:
 
 class AmalgamatePages:
     def __init__(
-        self, api_token: str, default_repo: str, workflow_name: str, artifact_name: str
+        self, api_token: str, default_repo: str, workflow_name: str, artifact_name: str, target_path: pathlib.Path,
     ):
         self.default_repo = default_repo
         self.workflow_name = workflow_name
         self.artifact_name = artifact_name
+        self.target_path = target_path
 
         backend = requests_cache.SQLiteCache()
         self.session = requests_cache.CachedSession(
@@ -200,8 +201,7 @@ class AmalgamatePages:
         web_artifacts = self.find_latest_artifacts(workflow["id"])
         pull_requests = self.list_pull_requests()
 
-        tmpdir = pathlib.Path(tempfile.mkdtemp(prefix="godoctopus-"))
-        logging.info("Assembling site at %s", tmpdir)
+        logging.info("Assembling site at %s", self.target_path)
 
         # Place default branch content at root of site
         default_branch = web_artifacts[default_org].live_branches.pop(
@@ -215,10 +215,10 @@ class AmalgamatePages:
         logging.info(
             "Fetching %s export from %s/%s", default_org, default_branch_name, url
         )
-        self.download_and_extract(url, tmpdir)
+        self.download_and_extract(url, self.target_path)
 
         items = []
-        branches_dir = tmpdir / "branches"
+        branches_dir = self.target_path / "branches"
         branches_dir.mkdir()
 
         for org, fork in web_artifacts.items():
@@ -280,9 +280,9 @@ class AmalgamatePages:
         github_output = os.environ.get("GITHUB_OUTPUT")
         if github_output:
             with open(github_output, "a") as f:
-                f.write(f"path={tmpdir}\n")
+                f.write(f"path={self.target_path}\n")
 
-        logging.info("Site assembled at %s", tmpdir)
+        logging.info("Site assembled at %s", self.target_path)
 
         self.session.cache.delete(older_than=datetime.timedelta(days=7))
 
@@ -305,10 +305,17 @@ def main() -> None:
     repo = os.environ["GITHUB_REPOSITORY"]
     workflow_name = os.environ["WORKFLOW_NAME"]
     artifact_name = os.environ["ARTIFACT_NAME"]
+    target_dir = os.environ.get("TARGET_DIR")
+
+    if target_dir:
+        target_path = pathlib.Path(target_dir)
+        target_path.mkdir(parents=True, exist_ok=True)
+    else:
+        target_path = pathlib.Path(tempfile.mkdtemp(prefix="godoctopus-"))
 
     setup_logging()
 
-    amalgamate_pages = AmalgamatePages(api_token, repo, workflow_name, artifact_name)
+    amalgamate_pages = AmalgamatePages(api_token, repo, workflow_name, artifact_name, target_path)
     amalgamate_pages.run()
 
 
