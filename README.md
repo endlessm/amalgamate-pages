@@ -72,6 +72,7 @@ Add a new workflow looking like this:
 # .github/workflows/publish.yml
 name: "Publish to GitHub Pages"
 on:
+  delete:
   workflow_run:
     workflows:
       # This must match your build workflow's name
@@ -82,6 +83,9 @@ permissions:
   contents: read
   pages: write
   id-token: write
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
 publish:
     name: Publish all branches to GitHub Pages
     runs-on: ubuntu-latest
@@ -96,26 +100,26 @@ publish:
 The important elements are:
 
 1. The `workflow_run` trigger: this causes the publish workflow to run whenever
-   any of the input artifacts are updated.
+   any of the input artifacts are updated. (The `delete` trigger causes the
+   workflow to run when a branch is deleted.)
+
 2. The `permissions` section: this workflow must be allowed to write to GitHub Pages.
+
 3. The `workflow_name` and `artifact_name` parameters to this action: these are how the
    action finds the artifacts to amalgamate and publish.
 
-You may also want to specify the following to reduce redundant builds:
-
-```yaml
-# Cancel any ongoing previous run if the job is re-triggered
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: true
-```
+4. The `concurrency` rule reduces duplicate runs when the workflow is triggered
+   by several events in quick succession; in particular, merging a pull request
+   and deleting the source branch will cause the workflow to be triggered once
+   by the branch deletion and again by the `main` branch being built after the
+   merge.
 
 ## Limitations
 
-Currently, any branch for which an artifact is found will be included in the
-amalgamated site. This means:
-
-- Branches that have been merged into `main` will be included until their build
-  artifacts expire and something else triggers a rebuild of the site;
-- Unmerged branches whose artifacts have expired will not be included once the
-  site is rebuilt.
+Any branch for which an artifact is found will be included in the amalgamated
+site, unless there is a closed pull request for the branch. In particular this
+means that if you have a long-lived branch which is not regularly built, at some
+point its build artifact will expire and will not be included in the amalgamated
+site. Instead, the branches index will show the date on which it expired.
+Manually triggering the build workflow on that branch, or pushing a new commit
+to trigger a build, will restore it.
