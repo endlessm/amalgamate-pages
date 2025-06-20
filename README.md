@@ -116,10 +116,10 @@ The important elements are:
 
 ## Limitations
 
-Currently, any branch for which an artifact is found will be included in the
-amalgamated site. This means:
-
-- Branches that have been merged into `main` will be included until their build
-  artifacts expire and something else triggers a rebuild of the site;
-- Unmerged branches whose artifacts have expired will not be included once the
-  site is rebuilt.
+Any branch for which an artifact is found will be included in the amalgamated
+site, unless there is a closed pull request for the branch. In particular this
+means that if you have a long-lived branch which is not regularly built, at some
+point its build artifact will expire and will not be included in the amalgamated
+site. Instead, the branches index will show the date on which it expired.
+Manually triggering the build workflow on that branch, or pushing a new commit
+to trigger a build, will restore it.
