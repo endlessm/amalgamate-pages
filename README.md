@@ -83,6 +83,9 @@ permissions:
   contents: read
   pages: write
   id-token: write
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
 publish:
     name: Publish all branches to GitHub Pages
     runs-on: ubuntu-latest
@@ -99,18 +102,17 @@ The important elements are:
 1. The `workflow_run` trigger: this causes the publish workflow to run whenever
    any of the input artifacts are updated. (The `delete` trigger causes the
    workflow to run when a branch is deleted.)
+
 2. The `permissions` section: this workflow must be allowed to write to GitHub Pages.
+
 3. The `workflow_name` and `artifact_name` parameters to this action: these are how the
    action finds the artifacts to amalgamate and publish.
 
-You may also want to specify the following to reduce redundant builds:
-
-```yaml
-# Cancel any ongoing previous run if the job is re-triggered
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: true
-```
+4. The `concurrency` rule reduces duplicate runs when the workflow is triggered
+   by several events in quick succession; in particular, merging a pull request
+   and deleting the source branch will cause the workflow to be triggered once
+   by the branch deletion and again by the `main` branch being built after the
+   merge.
 
 ## Limitations
 
