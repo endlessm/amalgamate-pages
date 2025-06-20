@@ -72,6 +72,7 @@ Add a new workflow looking like this:
 # .github/workflows/publish.yml
 name: "Publish to GitHub Pages"
 on:
+  delete:
   workflow_run:
     workflows:
       # This must match your build workflow's name
@@ -96,7 +97,8 @@ publish:
 The important elements are:
 
 1. The `workflow_run` trigger: this causes the publish workflow to run whenever
-   any of the input artifacts are updated.
+   any of the input artifacts are updated. (The `delete` trigger causes the
+   workflow to run when a branch is deleted.)
 2. The `permissions` section: this workflow must be allowed to write to GitHub Pages.
 3. The `workflow_name` and `artifact_name` parameters to this action: these are how the
    action finds the artifacts to amalgamate and publish.
