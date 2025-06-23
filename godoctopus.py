@@ -12,6 +12,7 @@ from typing import Any
 
 import jinja2
 import requests
+import requests_cache
 
 
 @dataclasses.dataclass
@@ -43,7 +44,10 @@ class AmalgamatePages:
         self.workflow_name = workflow_name
         self.artifact_name = artifact_name
 
-        self.session = requests.Session()
+        backend = requests_cache.SQLiteCache()
+        self.session = requests_cache.CachedSession(
+            backend=backend, cache_control=True, expire_after=60
+        )
         self.session.headers.update(
             {
                 "Authorization": f"Bearer {api_token}",
@@ -279,6 +283,8 @@ class AmalgamatePages:
                 f.write(f"path={tmpdir}\n")
 
         logging.info("Site assembled at %s", tmpdir)
+
+        self.session.cache.delete(older_than=datetime.timedelta(days=7))
 
 
 def setup_logging() -> None:
