@@ -8,7 +8,7 @@ import pathlib
 import shutil
 import tempfile
 import zipfile
-from typing import Any
+from typing import Any, Iterator
 
 import jinja2
 import requests
@@ -56,7 +56,9 @@ class AmalgamatePages:
             }
         )
 
-    def _paginate(self, url, params=None, item_key=None):
+    def _paginate(
+        self, url, params: dict | None = None, item_key: str | None = None
+    ) -> Iterator[dict]:
         if not params:
             params = {}
         params.setdefault("per_page", 100)
