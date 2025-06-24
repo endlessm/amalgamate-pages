@@ -56,6 +56,12 @@ class AmalgamatePages:
             }
         )
 
+        self.jinja_env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
+            autoescape=jinja2.select_autoescape(),
+        )
+        self.jinja_env.filters["pretty_date_from_iso8601"] = pretty_date_from_iso8601
+
     def _paginate(
         self, url, params: dict | None = None, item_key: str | None = None
     ) -> Iterator[dict]:
@@ -193,6 +199,14 @@ class AmalgamatePages:
                 shutil.copyfileobj(response.raw, f)
                 zipfile.ZipFile(f).extractall(dest_dir)
 
+    def render_template(self, name: str, target: pathlib.Path, context: dict) -> None:
+        template = self.jinja_env.get_template(name)
+        with target.open("w") as f:
+            stream = template.stream(context)
+            # TemplateStream.dump expects str | IO[bytes]
+            # while f is TextIOWrapper[_WrappedBuffer]
+            stream.dump(f)  # type: ignore
+
     def run(self) -> None:
         repo_details = self.get_default_repo_details()
         default_org = repo_details["owner"]["login"]
@@ -267,17 +281,14 @@ class AmalgamatePages:
 
                 items.append(item)
 
-        env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
-            autoescape=jinja2.select_autoescape(),
+        self.render_template(
+            "branches.html",
+            branches_dir / "index.html",
+            {
+                "title": "Branches",
+                "branches": items,
+            },
         )
-        env.filters["pretty_date_from_iso8601"] = pretty_date_from_iso8601
-        template = env.get_template("branches.html")
-        with (branches_dir / "index.html").open("w") as f:
-            stream = template.stream(title="Branches", branches=items)
-            # TemplateStream.dump expects str | IO[bytes]
-            # while f is TextIOWrapper[_WrappedBuffer]
-            stream.dump(f)  # type: ignore
 
         github_output = os.environ.get("GITHUB_OUTPUT")
         if github_output:
