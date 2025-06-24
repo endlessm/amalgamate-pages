@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import collections.abc
 import dataclasses
 import datetime
 import logging
@@ -30,6 +31,14 @@ class Branch:
 @dataclasses.dataclass
 class Fork:
     live_branches: dict[str, Branch]
+
+
+def lead_sorted(seq: collections.abc.KeysView[str], first: str) -> list[str]:
+    """Return a list with `first` at the front if present, followed by the rest sorted."""
+    if first in seq:
+        return [first] + sorted(seq - {first})
+    else:
+        return sorted(seq)
 
 
 def pretty_date_from_iso8601(d: str) -> str:
@@ -210,7 +219,7 @@ class AmalgamatePages:
     def run(self) -> None:
         repo_details = self.get_default_repo_details()
         default_org = repo_details["owner"]["login"]
-        default_branch_name = repo_details["default_branch"]
+        default_branch = repo_details["default_branch"]
 
         workflow = self.find_workflow()
         web_artifacts = self.find_latest_artifacts(workflow["id"])
@@ -218,27 +227,17 @@ class AmalgamatePages:
 
         tmpdir = pathlib.Path(tempfile.mkdtemp(prefix="godoctopus-"))
         logging.info("Assembling site at %s", tmpdir)
+        have_toplevel_build = False
 
-        # Place default branch content at root of site
-        default_branch = web_artifacts[default_org].live_branches.pop(
-            default_branch_name
-        )
-        if not default_branch.build or default_branch.build.artifact["expired"]:
-            raise ValueError(
-                f"No artifact found for default branch {default_branch_name}"
-            )
-        url = default_branch.build.artifact["archive_download_url"]
-        logging.info(
-            "Fetching %s export from %s/%s", default_org, default_branch_name, url
-        )
-        self.download_and_extract(url, tmpdir)
 
         items = []
         branches_dir = tmpdir / "branches"
         branches_dir.mkdir()
 
-        for org, fork in web_artifacts.items():
-            for branch_name, branch in fork.live_branches.items():
+        for org in lead_sorted(web_artifacts.keys(), default_org):
+            fork = web_artifacts[org]
+            for branch_name in lead_sorted(fork.live_branches.keys(), default_branch):
+                branch = fork.live_branches[branch_name]
                 if not branch.build and org != default_org:
                     logging.debug(
                         "Ignoring never-built third-party branch %s:%s",
@@ -272,14 +271,30 @@ class AmalgamatePages:
                             "Fetching %s:%s export from %s", org, branch_name, url
                         )
 
-                        # TODO: Use colon form in directory name, avoiding intermediate
-                        # directory with no index?
-                        branch_dir = branches_dir / org / branch_name
-                        branch_dir.mkdir(parents=True)
+                        if (
+                            org == default_org
+                            and branch_name == default_branch
+                            and not have_toplevel_build
+                        ):
+                            branch_dir = tmpdir
+                            have_toplevel_build = True
+                        else:
+                            # TODO: Use colon form in directory name, avoiding
+                            # intermediate directory with no index?
+                            branch_dir = branches_dir / org / branch_name
+                            branch_dir.mkdir(parents=True)
+
                         self.download_and_extract(url, branch_dir)
-                        item["relative_path"] = f"{org}/{branch_name}"
+                        item["relative_path"] = branch_dir.relative_to(
+                            branches_dir, walk_up=True
+                        )
 
                 items.append(item)
+
+        if not have_toplevel_build:
+            self.render_template(
+                "redirect.html", tmpdir / "index.html", {"target": "branches/"}
+            )
 
         self.render_template(
             "branches.html",
