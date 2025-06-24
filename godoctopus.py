@@ -33,6 +33,12 @@ class Fork:
     live_branches: dict[str, Branch]
 
 
+@dataclasses.dataclass
+class Release:
+    data: dict
+    asset_url: str
+
+
 def lead_sorted(seq: collections.abc.KeysView[str], first: str) -> list[str]:
     """Return a list with `first` at the front if present, followed by the rest sorted."""
     if first in seq:
@@ -201,8 +207,46 @@ class AmalgamatePages:
 
         return artifacts
 
-    def download_and_extract(self, url: str, dest_dir: pathlib.Path) -> None:
-        with self.session.get(url, stream=True) as response:
+    def get_latest_built_release(self) -> Release | None:
+        """Fetches data on the latest release that has an asset that looks like a web build."""
+        name_suffix = f"-{self.artifact_name}.zip"
+        content_type = "application/zip"
+
+        logging.info(
+            "Finding latest release with an asset whose name ends with '%s'",
+            name_suffix,
+        )
+
+        # https://docs.github.com/en/rest/releases/releases?apiVersion=2022-11-28#get-the-latest-release
+        # does not allow you to fetch the latest prerelease, and currently all
+        # releases in Threadbare are prereleases.
+        for release in self._paginate(
+            f"https://api.github.com/repos/{self.default_repo}/releases"
+        ):
+            if release["draft"]:
+                continue
+
+            # TODO: Add a parameter to control whether pre-releases are used?
+
+            for asset in release["assets"]:
+                if (
+                    asset["name"].endswith(name_suffix)
+                    and asset["content_type"] == content_type
+                ):
+                    logging.info(
+                        "Found suitable asset %s in release %s",
+                        asset["name"],
+                        release["name"],
+                    )
+                    return Release(release, asset["url"])
+
+        logging.info("No suitable release/asset found")
+        return None
+
+    def download_and_extract(
+        self, url: str, dest_dir: pathlib.Path, headers: dict[str, str] | None = None
+    ) -> None:
+        with self.session.get(url, headers=headers, stream=True) as response:
             response.raise_for_status()
             with tempfile.TemporaryFile() as f:
                 shutil.copyfileobj(response.raw, f)
@@ -221,6 +265,8 @@ class AmalgamatePages:
         default_org = repo_details["owner"]["login"]
         default_branch = repo_details["default_branch"]
 
+        latest_release = self.get_latest_built_release()
+
         workflow = self.find_workflow()
         web_artifacts = self.find_latest_artifacts(workflow["id"])
         pull_requests = self.list_pull_requests()
@@ -229,6 +275,22 @@ class AmalgamatePages:
         logging.info("Assembling site at %s", tmpdir)
         have_toplevel_build = False
 
+        if latest_release is not None:
+            # Downloading a release asset requires setting the Accept header to
+            # application/octet-stream, or else you just get the JSON
+            # description of the asset back.
+            #
+            # https://docs.github.com/en/rest/releases/assets?apiVersion=2022-11-28
+            #
+            # However, setting Accept: application/octet-stream for build
+            # artifacts does not work! So we need a different Accept header in
+            # the two cases.
+            self.download_and_extract(
+                latest_release.asset_url,
+                tmpdir,
+                headers={"Accept": "application/octet-stream"},
+            )
+            have_toplevel_build = True
 
         items = []
         branches_dir = tmpdir / "branches"
