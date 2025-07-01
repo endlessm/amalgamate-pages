@@ -10,6 +10,18 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Check that GitHub Pages is correctly configured
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: bash
+      run: |
+        if ! gh api "repos/${{ github.repository }}/pages" | jq --exit-status '.build_type == "workflow"'
+        then
+            echo -n "Check that Pages is enabled, with the source set to GitHub Actions, in the " >> "$GITHUB_STEP_SUMMARY"
+            echo "[repository settings](https://github.com/${{ github.repository }}/settings/pages)." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+        fi
+
     - uses: astral-sh/setup-uv@v6
       with:
         cache-dependency-glob: |
