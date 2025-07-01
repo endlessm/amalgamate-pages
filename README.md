@@ -2,20 +2,27 @@
 
 There is no built-in way to publish a separate GitHub Pages site for each branch
 of a project. This action provides a way to simulate it, by rolling up the build
-artifacts from different branches into a single site. The default branch is
-placed at the root of the site as normal; other branches live in a `/branches/`
-directory, with an index.
+artifacts from different branches into a single site.
+
+The action finds the latest build artifact for all live branches in the repo,
+plus any builds for pull requests from forks, and places them beneath a
+`branches/` directory of the site, with an index in that directory.
+
+The newest-available asset attached to a published release (which may be a
+pre-release) is placed at the root of the site. If no such asset is found, the
+build artifact for the default branch is placed at the root of the site. If no
+such artifact is available, the root of the site redirects to the index of
+branches.
 
 ## Example
 
-[Candy Collective](https://github.com/endlessm/candy-collective) is used in
-collaborative game-making programs, where (among other things) participants can
+[Threadbare](https://github.com/endlessm/threadbare) is a game by Endless Access.
+It is used in game-making programs, where (among other things) participants can
 gain experience with contributing to a community project via Git and GitHub.
 
-The `main` branch of the game can be played at
-<https://endlessm.github.io/candy-collective/>. Thanks to this action,
-work-in-progress branches can be previewed at
-<https://endlessm.github.io/candy-collective/branches/>.
+You can play the latest pre-release of the game at
+<https://endlessm.github.io/threadbare/>, and preview work-in-progress branches
+at <https://endlessm.github.io/threadbare/branches/>.
 
 ## Usage
 
@@ -106,7 +113,10 @@ The important elements are:
 2. The `permissions` section: this workflow must be allowed to write to GitHub Pages.
 
 3. The `workflow_name` and `artifact_name` parameters to this action: these are how the
-   action finds the artifacts to amalgamate and publish.
+   action finds the artifacts to amalgamate and publish. The `artifact_name` is
+   also used when scanning for release assets: for example, if `artifact_name`
+   is `web`, then the release asset is expected to have a filename ending with
+   `-web.zip`.
 
 4. The `concurrency` rule reduces duplicate runs when the workflow is triggered
    by several events in quick succession; in particular, merging a pull request

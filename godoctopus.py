@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import collections.abc
 import dataclasses
 import datetime
 import logging
@@ -8,7 +9,7 @@ import pathlib
 import shutil
 import tempfile
 import zipfile
-from typing import Any
+from typing import Any, Iterator
 
 import jinja2
 import requests
@@ -30,6 +31,20 @@ class Branch:
 @dataclasses.dataclass
 class Fork:
     live_branches: dict[str, Branch]
+
+
+@dataclasses.dataclass
+class Release:
+    data: dict
+    asset_url: str
+
+
+def lead_sorted(seq: collections.abc.KeysView[str], first: str) -> list[str]:
+    """Return a list with `first` at the front if present, followed by the rest sorted."""
+    if first in seq:
+        return [first] + sorted(seq - {first})
+    else:
+        return sorted(seq)
 
 
 def pretty_date_from_iso8601(d: str) -> str:
@@ -56,7 +71,15 @@ class AmalgamatePages:
             }
         )
 
-    def _paginate(self, url, params=None, item_key=None):
+        self.jinja_env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
+            autoescape=jinja2.select_autoescape(),
+        )
+        self.jinja_env.filters["pretty_date_from_iso8601"] = pretty_date_from_iso8601
+
+    def _paginate(
+        self, url, params: dict | None = None, item_key: str | None = None
+    ) -> Iterator[dict]:
         if not params:
             params = {}
         params.setdefault("per_page", 100)
@@ -184,17 +207,65 @@ class AmalgamatePages:
 
         return artifacts
 
-    def download_and_extract(self, url: str, dest_dir: pathlib.Path) -> None:
-        with self.session.get(url, stream=True) as response:
+    def get_latest_built_release(self) -> Release | None:
+        """Fetches data on the latest release that has an asset that looks like a web build."""
+        name_suffix = f"-{self.artifact_name}.zip"
+        content_type = "application/zip"
+
+        logging.info(
+            "Finding latest release with an asset whose name ends with '%s'",
+            name_suffix,
+        )
+
+        # https://docs.github.com/en/rest/releases/releases?apiVersion=2022-11-28#get-the-latest-release
+        # does not allow you to fetch the latest prerelease, and currently all
+        # releases in Threadbare are prereleases.
+        for release in self._paginate(
+            f"https://api.github.com/repos/{self.default_repo}/releases"
+        ):
+            if release["draft"]:
+                continue
+
+            # TODO: Add a parameter to control whether pre-releases are used?
+
+            for asset in release["assets"]:
+                if (
+                    asset["name"].endswith(name_suffix)
+                    and asset["content_type"] == content_type
+                ):
+                    logging.info(
+                        "Found suitable asset %s in release %s",
+                        asset["name"],
+                        release["name"],
+                    )
+                    return Release(release, asset["url"])
+
+        logging.info("No suitable release/asset found")
+        return None
+
+    def download_and_extract(
+        self, url: str, dest_dir: pathlib.Path, headers: dict[str, str] | None = None
+    ) -> None:
+        with self.session.get(url, headers=headers, stream=True) as response:
             response.raise_for_status()
             with tempfile.TemporaryFile() as f:
                 shutil.copyfileobj(response.raw, f)
                 zipfile.ZipFile(f).extractall(dest_dir)
 
+    def render_template(self, name: str, target: pathlib.Path, context: dict) -> None:
+        template = self.jinja_env.get_template(name)
+        with target.open("w") as f:
+            stream = template.stream(context)
+            # TemplateStream.dump expects str | IO[bytes]
+            # while f is TextIOWrapper[_WrappedBuffer]
+            stream.dump(f)  # type: ignore
+
     def run(self) -> None:
         repo_details = self.get_default_repo_details()
         default_org = repo_details["owner"]["login"]
-        default_branch_name = repo_details["default_branch"]
+        default_branch = repo_details["default_branch"]
+
+        latest_release = self.get_latest_built_release()
 
         workflow = self.find_workflow()
         web_artifacts = self.find_latest_artifacts(workflow["id"])
@@ -202,27 +273,33 @@ class AmalgamatePages:
 
         tmpdir = pathlib.Path(tempfile.mkdtemp(prefix="godoctopus-"))
         logging.info("Assembling site at %s", tmpdir)
+        have_toplevel_build = False
 
-        # Place default branch content at root of site
-        default_branch = web_artifacts[default_org].live_branches.pop(
-            default_branch_name
-        )
-        if not default_branch.build or default_branch.build.artifact["expired"]:
-            raise ValueError(
-                f"No artifact found for default branch {default_branch_name}"
+        if latest_release is not None:
+            # Downloading a release asset requires setting the Accept header to
+            # application/octet-stream, or else you just get the JSON
+            # description of the asset back.
+            #
+            # https://docs.github.com/en/rest/releases/assets?apiVersion=2022-11-28
+            #
+            # However, setting Accept: application/octet-stream for build
+            # artifacts does not work! So we need a different Accept header in
+            # the two cases.
+            self.download_and_extract(
+                latest_release.asset_url,
+                tmpdir,
+                headers={"Accept": "application/octet-stream"},
             )
-        url = default_branch.build.artifact["archive_download_url"]
-        logging.info(
-            "Fetching %s export from %s/%s", default_org, default_branch_name, url
-        )
-        self.download_and_extract(url, tmpdir)
+            have_toplevel_build = True
 
         items = []
         branches_dir = tmpdir / "branches"
         branches_dir.mkdir()
 
-        for org, fork in web_artifacts.items():
-            for branch_name, branch in fork.live_branches.items():
+        for org in lead_sorted(web_artifacts.keys(), default_org):
+            fork = web_artifacts[org]
+            for branch_name in lead_sorted(fork.live_branches.keys(), default_branch):
+                branch = fork.live_branches[branch_name]
                 if not branch.build and org != default_org:
                     logging.debug(
                         "Ignoring never-built third-party branch %s:%s",
@@ -256,26 +333,39 @@ class AmalgamatePages:
                             "Fetching %s:%s export from %s", org, branch_name, url
                         )
 
-                        # TODO: Use colon form in directory name, avoiding intermediate
-                        # directory with no index?
-                        branch_dir = branches_dir / org / branch_name
-                        branch_dir.mkdir(parents=True)
+                        if (
+                            org == default_org
+                            and branch_name == default_branch
+                            and not have_toplevel_build
+                        ):
+                            branch_dir = tmpdir
+                            have_toplevel_build = True
+                        else:
+                            # TODO: Use colon form in directory name, avoiding
+                            # intermediate directory with no index?
+                            branch_dir = branches_dir / org / branch_name
+                            branch_dir.mkdir(parents=True)
+
                         self.download_and_extract(url, branch_dir)
-                        item["relative_path"] = f"{org}/{branch_name}"
+                        item["relative_path"] = branch_dir.relative_to(
+                            branches_dir, walk_up=True
+                        )
 
                 items.append(item)
 
-        env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
-            autoescape=jinja2.select_autoescape(),
+        if not have_toplevel_build:
+            self.render_template(
+                "redirect.html", tmpdir / "index.html", {"target": "branches/"}
+            )
+
+        self.render_template(
+            "branches.html",
+            branches_dir / "index.html",
+            {
+                "title": "Branches",
+                "branches": items,
+            },
         )
-        env.filters["pretty_date_from_iso8601"] = pretty_date_from_iso8601
-        template = env.get_template("branches.html")
-        with (branches_dir / "index.html").open("w") as f:
-            stream = template.stream(title="Branches", branches=items)
-            # TemplateStream.dump expects str | IO[bytes]
-            # while f is TextIOWrapper[_WrappedBuffer]
-            stream.dump(f)  # type: ignore
 
         github_output = os.environ.get("GITHUB_OUTPUT")
         if github_output:
