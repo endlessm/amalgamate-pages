@@ -25,7 +25,11 @@
             <time datetime="{{ branch.build.artifact["expires_at"] }}">{{
                 branch.build.artifact["expires_at"] | pretty_datetime_from_iso8601
             }}</time>)
-
+        {% else %}
+            (last updated
+            <time datetime="{{ branch.build.artifact["updated_at"] }}">{{
+                branch.build.artifact["updated_at"] | pretty_datetime_from_iso8601
+            }}</time>)
         {% endif %}
     </li>
 {% endfor %}
