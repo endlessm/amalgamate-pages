@@ -20,12 +20,20 @@
         {% if not branch.build %}
             (never built)
         {% elif branch.build.artifact["expired"] %}
-            (build
+            (<a href="{{ branch.build.workflow_run.html_url }}">latest build</a>
             expired
-            on
             <time datetime="{{ branch.build.artifact["expires_at"] }}">{{
-                branch.build.artifact["expires_at"] | pretty_date_from_iso8601
+                branch.build.artifact["expires_at"] | pretty_datetime_from_iso8601
             }}</time>)
+        {% else %}
+            (<a href="{{ branch.build.workflow_run.html_url }}">latest build</a>
+            <time datetime="{{ branch.build.artifact["updated_at"] }}">{{
+                branch.build.artifact["updated_at"] | pretty_datetime_from_iso8601
+            }}</time>
+            from commit
+            <a href="{{ branch.build.workflow_run.head_repository.html_url }}/commit/{{ branch.build.workflow_run.head_sha }}">{{
+                branch.build.workflow_run.head_sha[:7]
+            }}</a>)
         {% endif %}
     </li>
 {% endfor %}
