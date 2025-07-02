@@ -22,10 +22,10 @@
         {% elif branch.build.artifact["expired"] %}
             (build
             expired
-            on
             <time datetime="{{ branch.build.artifact["expires_at"] }}">{{
-                branch.build.artifact["expires_at"] | pretty_date_from_iso8601
+                branch.build.artifact["expires_at"] | pretty_datetime_from_iso8601
             }}</time>)
+
         {% endif %}
     </li>
 {% endfor %}

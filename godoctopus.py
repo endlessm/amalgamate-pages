@@ -47,8 +47,8 @@ def lead_sorted(seq: collections.abc.KeysView[str], first: str) -> list[str]:
         return sorted(seq)
 
 
-def pretty_date_from_iso8601(d: str) -> str:
-    return datetime.datetime.fromisoformat(d).strftime("%A %-d %B %Y")
+def pretty_datetime_from_iso8601(d: str) -> str:
+    return datetime.datetime.fromisoformat(d).strftime("%A %-d %B %Y, %-I:%M %p %Z")
 
 
 class AmalgamatePages:
@@ -75,7 +75,7 @@ class AmalgamatePages:
             loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
             autoescape=jinja2.select_autoescape(),
         )
-        self.jinja_env.filters["pretty_date_from_iso8601"] = pretty_date_from_iso8601
+        self.jinja_env.filters["pretty_datetime_from_iso8601"] = pretty_datetime_from_iso8601
 
     def _paginate(
         self, url, params: dict | None = None, item_key: str | None = None
