@@ -3,6 +3,69 @@
 <head>
 <meta charset=utf-8>
 <title>{{ title }}</title>
+<style>
+
+:root {
+    --primary: #333;
+    --secondary: #666;
+    --bg-color: #fff;
+    --link-color: #00e;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --primary: #eee;
+        --secondary: #ccc;
+        --bg-color: #222;
+        --link-color: #55f;
+    }
+}
+
+body {
+  color: var(--primary);
+  background-color: var(--bg-color);
+  font-family: sans-serif;
+  line-height: 1.5;
+  margin: 0 auto;
+  padding: 1rem;
+  max-width: 768px;
+}
+
+a {
+    color: var(--link-color);
+    text-decoration: none;
+}
+
+ul {
+    list-style: none;
+    padding: 0;
+}
+
+ul li {
+    padding-bottom: 1.5rem;
+    margin-bottom: 1rem;
+    border-color: var(--secondary);
+    border-style: solid;
+    border-width: 0 0 1px 0;
+}
+
+b {
+    font-size: 1.6rem;
+    color: var(--secondary);
+}
+
+.pr a, .build a {
+    color: var(--secondary);
+    text-decoration: underline;
+    font-weight: bold;
+    transition: 0.3s;
+}
+
+.pr a:hover, .build a:hover {
+    color: var(--link-color);
+}
+
+</style>
 </head>
 <body>
 <ul>
