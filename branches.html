@@ -18,29 +18,32 @@
         {% if branch.pull_request %}
             <br/>
             <span class="pr">
-                from pull request
+                From pull request
                 <a href="{{ branch.pull_request.html_url }}">#{{ branch.pull_request.number }}: {{ branch.pull_request.title }}</a>
             </span>
         {% endif %}
         <br/>
         <span class="build">
         {% if not branch.build %}
-            (never built)
+            Never built.
         {% elif branch.build.artifact["expired"] %}
-            (<a href="{{ branch.build.workflow_run.html_url }}">latest build</a>
-            expired
-            <time datetime="{{ branch.build.artifact["expires_at"] }}">{{
-                branch.build.artifact["expires_at"] | pretty_datetime_from_iso8601
-            }}</time>)
+            Build expired on
+            <a href="{{ branch.build.workflow_run.html_url }}">
+                <time datetime="{{ branch.build.artifact["expires_at"] }}">{{
+                    branch.build.artifact["expires_at"] | pretty_datetime_from_iso8601
+                }}</time>
+            </a>
         {% else %}
-            (<a href="{{ branch.build.workflow_run.html_url }}">latest build</a>
-            <time datetime="{{ branch.build.artifact["updated_at"] }}">{{
-                branch.build.artifact["updated_at"] | pretty_datetime_from_iso8601
-            }}</time>
-            from commit
+            Built on
+            <a href="{{ branch.build.workflow_run.html_url }}">
+                <time datetime="{{ branch.build.artifact["updated_at"] }}">{{
+                    branch.build.artifact["updated_at"] | pretty_datetime_from_iso8601
+                }}</time>
+            </a>
+            &nbsp;from commit
             <a href="{{ branch.build.workflow_run.head_repository.html_url }}/commit/{{ branch.build.workflow_run.head_sha }}">{{
                 branch.build.workflow_run.head_sha[:7]
-            }}</a>)
+            }}</a>
         {% endif %}
         </span>
     </li>
