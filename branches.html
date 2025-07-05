@@ -17,10 +17,13 @@
         </b>
         {% if branch.pull_request %}
             <br/>
-            from pull request
-            <a href="{{ branch.pull_request.html_url }}">#{{ branch.pull_request.number }}: {{ branch.pull_request.title }}</a>
+            <span class="pr">
+                from pull request
+                <a href="{{ branch.pull_request.html_url }}">#{{ branch.pull_request.number }}: {{ branch.pull_request.title }}</a>
+            </span>
         {% endif %}
         <br/>
+        <span class="build">
         {% if not branch.build %}
             (never built)
         {% elif branch.build.artifact["expired"] %}
@@ -39,6 +42,7 @@
                 branch.build.workflow_run.head_sha[:7]
             }}</a>)
         {% endif %}
+        </span>
     </li>
 {% endfor %}
 </ul>
