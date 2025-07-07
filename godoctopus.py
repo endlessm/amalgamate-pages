@@ -36,7 +36,7 @@ class Fork:
 @dataclasses.dataclass
 class Release:
     data: dict
-    asset_url: str
+    asset: dict
 
 
 def lead_sorted(seq: collections.abc.KeysView[str], first: str) -> list[str]:
@@ -240,7 +240,7 @@ class AmalgamatePages:
                         asset["name"],
                         release["name"],
                     )
-                    return Release(release, asset["url"])
+                    return Release(release, asset)
 
         logging.info("No suitable release/asset found")
         return None
@@ -288,7 +288,7 @@ class AmalgamatePages:
             # artifacts does not work! So we need a different Accept header in
             # the two cases.
             self.download_and_extract(
-                latest_release.asset_url,
+                latest_release.asset["url"],
                 tmpdir,
                 headers={"Accept": "application/octet-stream"},
             )
@@ -365,6 +365,7 @@ class AmalgamatePages:
             branches_dir / "index.html",
             {
                 "title": "Branches",
+                "latest_release": latest_release,
                 "branches": items,
             },
         )
