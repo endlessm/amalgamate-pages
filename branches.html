@@ -69,6 +69,22 @@ b {
 </head>
 <body>
 <ul>
+{% if latest_release %}
+    <li>
+        <b><a href="../">Latest release: {{ latest_release.data.name }}</a></b>
+        <br/>
+        <span class="build">
+            Built on
+            <time datetime="{{ latest_release.asset.updated_at }}">{{
+                latest_release.asset.updated_at | pretty_datetime_from_iso8601
+            }}</time>
+            from tag
+            <a href="{{ latest_release.data.html_url }}">{{
+                latest_release.data.tag_name
+            }}</a>
+        </span>
+    </li>
+{% endif %}
 {% for branch in branches %}
     <li>
         <b>
