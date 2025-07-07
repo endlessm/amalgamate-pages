@@ -75,7 +75,9 @@ class AmalgamatePages:
             loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
             autoescape=jinja2.select_autoescape(),
         )
-        self.jinja_env.filters["pretty_datetime_from_iso8601"] = pretty_datetime_from_iso8601
+        self.jinja_env.filters["pretty_datetime_from_iso8601"] = (
+            pretty_datetime_from_iso8601
+        )
 
     def _paginate(
         self, url, params: dict | None = None, item_key: str | None = None
