@@ -94,16 +94,14 @@ b {
             <a href="{{ branch.build.workflow_run.html_url }}">
                 <time datetime="{{ branch.build.artifact["expires_at"] }}">{{
                     branch.build.artifact["expires_at"] | pretty_datetime_from_iso8601
-                }}</time>
-            </a>
+                }}</time></a>
         {% else %}
             Built on
             <a href="{{ branch.build.workflow_run.html_url }}">
                 <time datetime="{{ branch.build.artifact["updated_at"] }}">{{
                     branch.build.artifact["updated_at"] | pretty_datetime_from_iso8601
-                }}</time>
-            </a>
-            &nbsp;from commit
+                }}</time></a>
+            from commit
             <a href="{{ branch.build.workflow_run.head_repository.html_url }}/commit/{{ branch.build.workflow_run.head_sha }}">{{
                 branch.build.workflow_run.head_sha[:7]
             }}</a>
