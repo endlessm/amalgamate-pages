@@ -21,14 +21,33 @@
     }
 }
 
+html, body {
+    height: 100%;
+}
+
 body {
-  color: var(--primary);
-  background-color: var(--bg-color);
-  font-family: sans-serif;
-  line-height: 1.5;
-  margin: 0 auto;
-  padding: 1rem;
-  max-width: 768px;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    color: var(--primary);
+    background-color: var(--bg-color);
+    font-family: sans-serif;
+}
+
+main {
+    line-height: 1.5;
+    margin: 0 auto;
+    padding: 1rem;
+    max-width: 768px;
+    flex: 1 0 auto;
+}
+
+footer {
+    color: var(--secondary);
+    font-size: 0.9rem;
+    text-align: center;
+    padding: 1.5rem 0;
+    flex-shrink: 0;
 }
 
 a {
@@ -54,20 +73,21 @@ b {
     color: var(--secondary);
 }
 
-.pr a, .build a {
+.pr a, .build a, footer a {
     color: var(--secondary);
     text-decoration: underline;
     font-weight: bold;
     transition: 0.3s;
 }
 
-.pr a:hover, .build a:hover {
+.pr a:hover, .build a:hover, footer a:hover {
     color: var(--link-color);
 }
 
 </style>
 </head>
 <body>
+<main>
 <ul>
 {% if latest_release %}
     <li>
@@ -126,5 +146,9 @@ b {
     </li>
 {% endfor %}
 </ul>
+</main>
+<footer>
+    Created with <a href="https://github.com/endlessm/amalgamate-pages">Amalgamate Pages</a>.
+</footer>
 </body>
 </html>
