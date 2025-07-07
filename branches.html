@@ -3,38 +3,112 @@
 <head>
 <meta charset=utf-8>
 <title>{{ title }}</title>
+<style>
+
+:root {
+    --primary: #333;
+    --secondary: #666;
+    --bg-color: #fff;
+    --link-color: #00e;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --primary: #eee;
+        --secondary: #ccc;
+        --bg-color: #222;
+        --link-color: #55f;
+    }
+}
+
+body {
+  color: var(--primary);
+  background-color: var(--bg-color);
+  font-family: sans-serif;
+  line-height: 1.5;
+  margin: 0 auto;
+  padding: 1rem;
+  max-width: 768px;
+}
+
+a {
+    color: var(--link-color);
+    text-decoration: none;
+}
+
+ul {
+    list-style: none;
+    padding: 0;
+}
+
+ul li {
+    padding-bottom: 1.5rem;
+    margin-bottom: 1rem;
+    border-color: var(--secondary);
+    border-style: solid;
+    border-width: 0 0 1px 0;
+}
+
+b {
+    font-size: 1.6rem;
+    color: var(--secondary);
+}
+
+.pr a, .build a {
+    color: var(--secondary);
+    text-decoration: underline;
+    font-weight: bold;
+    transition: 0.3s;
+}
+
+.pr a:hover, .build a:hover {
+    color: var(--link-color);
+}
+
+</style>
 </head>
 <body>
 <ul>
 {% for branch in branches %}
     <li>
+        <b>
         {% if branch.relative_path %}
             <a href="{{ branch.relative_path | urlencode }}">{{ branch.name }}</a>
         {% else %}
             {{ branch.name }}
         {% endif %}
+        </b>
         {% if branch.pull_request %}
-            from pull request
-            <a href="{{ branch.pull_request.html_url }}">#{{ branch.pull_request.number }}: {{ branch.pull_request.title }}</a>
+            <br/>
+            <span class="pr">
+                From pull request
+                <a href="{{ branch.pull_request.html_url }}">{{ branch.pull_request.title }} #{{ branch.pull_request.number }}</a>
+            </span>
         {% endif %}
+        <br/>
+        <span class="build">
         {% if not branch.build %}
-            (never built)
+            Never built.
         {% elif branch.build.artifact["expired"] %}
-            (<a href="{{ branch.build.workflow_run.html_url }}">latest build</a>
-            expired
-            <time datetime="{{ branch.build.artifact["expires_at"] }}">{{
-                branch.build.artifact["expires_at"] | pretty_datetime_from_iso8601
-            }}</time>)
+            Build expired on
+            <a href="{{ branch.build.workflow_run.html_url }}">
+                <time datetime="{{ branch.build.artifact["expires_at"] }}">{{
+                    branch.build.artifact["expires_at"] | pretty_datetime_from_iso8601
+                }}</time>
+            </a>
         {% else %}
-            (<a href="{{ branch.build.workflow_run.html_url }}">latest build</a>
-            <time datetime="{{ branch.build.artifact["updated_at"] }}">{{
-                branch.build.artifact["updated_at"] | pretty_datetime_from_iso8601
-            }}</time>
-            from commit
+            Built on
+            <a href="{{ branch.build.workflow_run.html_url }}">
+                <time datetime="{{ branch.build.artifact["updated_at"] }}">{{
+                    branch.build.artifact["updated_at"] | pretty_datetime_from_iso8601
+                }}</time>
+            </a>
+            &nbsp;from commit
             <a href="{{ branch.build.workflow_run.head_repository.html_url }}/commit/{{ branch.build.workflow_run.head_sha }}">{{
                 branch.build.workflow_run.head_sha[:7]
-            }}</a>)
+            }}</a>
         {% endif %}
+        </span>
     </li>
 {% endfor %}
 </ul>
