@@ -1,0 +1,32 @@
+name: Update major version tag
+
+on:
+  push:
+    tags:
+      - 'v*.**'
+
+jobs:
+  update-major-version-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update major version tag
+        shell: bash
+        env:
+          GIT_AUTHOR_NAME: 'GitHub Actions'
+          GIT_COMMITTER_NAME: 'GitHub Actions'
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        # Documentation of GITHUB_REF, GITHUB_REF_NAME and GITHUB_SHA:
+        #
+        # https://docs.github.com/en/actions/reference/events-that-trigger-workflows#push
+        # https://docs.github.com/en/actions/reference/variables-reference#default-environment-variables
+        #
+        # We want the major version tag to point to the target of the specific
+        # tag, not to the tag, to avoid warnings about nested tags.
+        run: |
+          MAJOR_VERSION=${GITHUB_REF_NAME%%.*}
+          git tag -f -a -m "Update $MAJOR_VERSION to $GITHUB_REF_NAME" $MAJOR_VERSION $GITHUB_SHA
+          git push origin +$MAJOR_VERSION
