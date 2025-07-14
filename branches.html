@@ -141,6 +141,10 @@ b {
             <a href="{{ branch.build.workflow_run.head_repository.html_url }}/commit/{{ branch.build.workflow_run.head_sha }}">{{
                 branch.build.workflow_run.head_sha[:7]
             }}</a>
+            on branch
+            <a href="{{ branch.build.workflow_run.head_repository.html_url }}/commits/{{ branch.name }}">{{
+                branch.name
+            }}</a>
         {% endif %}
         </span>
     </li>
