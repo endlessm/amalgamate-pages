@@ -310,7 +310,10 @@ class AmalgamatePages:
                     )
                     continue
 
-                item: dict[str, Any] = {"name": f"{org}/{branch_name}"}
+                item: dict[str, Any] = {}
+                item["name"] = (
+                    branch_name if org == default_org else f"{org}/{branch_name}"
+                )
 
                 try:
                     pull_request = pull_requests[f"{org}:{branch_name}"][0]
