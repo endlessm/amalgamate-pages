@@ -372,6 +372,7 @@ class AmalgamatePages:
                 "generation_time": dt.datetime.now(tz=dt.timezone.utc),
             },
         )
+        shutil.copy("branches.css", branches_dir / "branches.css")
 
         github_output = os.environ.get("GITHUB_OUTPUT")
         if github_output:
