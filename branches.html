@@ -96,7 +96,7 @@ b {
         <span class="build">
             Built on
             <time datetime="{{ latest_release.asset.updated_at }}">{{
-                latest_release.asset.updated_at | pretty_datetime_from_iso8601
+                latest_release.asset.updated_at | from_iso8601 | pretty_datetime
             }}</time>
             from tag
             <a href="{{ latest_release.data.html_url }}">{{
@@ -129,13 +129,13 @@ b {
             Build expired on
             <a href="{{ branch.build.workflow_run.html_url }}">
                 <time datetime="{{ branch.build.artifact["expires_at"] }}">{{
-                    branch.build.artifact["expires_at"] | pretty_datetime_from_iso8601
+                    branch.build.artifact["expires_at"] | from_iso8601 | pretty_datetime
                 }}</time></a>
         {% else %}
             Built on
             <a href="{{ branch.build.workflow_run.html_url }}">
                 <time datetime="{{ branch.build.artifact["updated_at"] }}">{{
-                    branch.build.artifact["updated_at"] | pretty_datetime_from_iso8601
+                    branch.build.artifact["updated_at"] | from_iso8601 | pretty_datetime
                 }}</time></a>
             from commit
             <a href="{{ branch.build.workflow_run.head_repository.html_url }}/commit/{{ branch.build.workflow_run.head_sha }}">{{

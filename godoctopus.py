@@ -2,7 +2,7 @@
 
 import collections.abc
 import dataclasses
-import datetime
+import datetime as dt
 import logging
 import os
 import pathlib
@@ -47,8 +47,8 @@ def lead_sorted(seq: collections.abc.KeysView[str], first: str) -> list[str]:
         return sorted(seq)
 
 
-def pretty_datetime_from_iso8601(d: str) -> str:
-    return datetime.datetime.fromisoformat(d).strftime("%A %-d %B %Y, %-I:%M %p %Z")
+def pretty_datetime(d: dt.datetime) -> str:
+    return d.strftime("%A %-d %B %Y, %-I:%M %p %Z")
 
 
 class AmalgamatePages:
@@ -75,9 +75,8 @@ class AmalgamatePages:
             loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
             autoescape=jinja2.select_autoescape(),
         )
-        self.jinja_env.filters["pretty_datetime_from_iso8601"] = (
-            pretty_datetime_from_iso8601
-        )
+        self.jinja_env.filters["from_iso8601"] = dt.datetime.fromisoformat
+        self.jinja_env.filters["pretty_datetime"] = pretty_datetime
 
     def _paginate(
         self, url, params: dict | None = None, item_key: str | None = None
@@ -380,7 +379,7 @@ class AmalgamatePages:
 
         logging.info("Site assembled at %s", tmpdir)
 
-        self.session.cache.delete(older_than=datetime.timedelta(days=7))
+        self.session.cache.delete(older_than=dt.timedelta(days=7))
 
 
 def setup_logging() -> None:
