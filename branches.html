@@ -2,101 +2,23 @@
 <html lang=en>
 <head>
 <meta charset=utf-8>
-<title>{{ title }}</title>
-<style>
-
-:root {
-    --primary: #333;
-    --secondary: #666;
-    --bg-color: #fff;
-    --link-color: #00e;
-}
-
-@media (prefers-color-scheme: dark) {
-    :root {
-        --primary: #eee;
-        --secondary: #ccc;
-        --bg-color: #222;
-        --link-color: #55f;
-    }
-}
-
-html, body {
-    height: 100%;
-}
-
-body {
-    display: flex;
-    flex-direction: column;
-    margin: 0;
-    color: var(--primary);
-    background-color: var(--bg-color);
-    font-family: sans-serif;
-}
-
-main {
-    line-height: 1.5;
-    margin: 0 auto;
-    padding: 1rem;
-    max-width: 768px;
-    flex: 1 0 auto;
-}
-
-footer {
-    color: var(--secondary);
-    font-size: 0.9rem;
-    text-align: center;
-    padding: 1.5rem 0;
-    flex-shrink: 0;
-}
-
-a {
-    color: var(--link-color);
-    text-decoration: none;
-}
-
-ul {
-    list-style: none;
-    padding: 0;
-}
-
-ul li {
-    padding-bottom: 1.5rem;
-    margin-bottom: 1rem;
-    border-color: var(--secondary);
-    border-style: solid;
-    border-width: 0 0 1px 0;
-}
-
-b {
-    font-size: 1.6rem;
-    color: var(--secondary);
-}
-
-.pr a, .build a, footer a {
-    color: var(--secondary);
-    text-decoration: underline;
-    font-weight: bold;
-    transition: 0.3s;
-}
-
-.pr a:hover, .build a:hover, footer a:hover {
-    color: var(--link-color);
-}
-
-</style>
+<title>{{ repo_details.name | replace("-", " ") | title }} Branches</title>
+<link rel="stylesheet" href="branches.css">
 </head>
 <body>
+<header>
+    <h1>Playable branches from <a href="{{ repo_details.html_url}}">{{ repo_details.full_name }}</a></h1>
+</header>
 <main>
 <ul>
 {% if latest_release %}
     <li>
-        <b><a href="../">Latest release: {{ latest_release.data.name }}</a></b>
+        <b><a href="../" title="Play this release">Latest release: {{ latest_release.data.name }} ▶️</a></b>
         <br/>
         <span class="build">
             Built on
             <time datetime="{{ latest_release.asset.updated_at }}">{{
-                latest_release.asset.updated_at | pretty_datetime_from_iso8601
+                latest_release.asset.updated_at | from_iso8601 | pretty_datetime
             }}</time>
             from tag
             <a href="{{ latest_release.data.html_url }}">{{
@@ -109,7 +31,12 @@ b {
     <li>
         <b>
         {% if branch.relative_path %}
-            <a href="{{ branch.relative_path | urlencode }}">{{ branch.name }}</a>
+            <a href="{{ branch.relative_path | urlencode }}" title="Play this branch">
+                {%- if branch.is_default -%}
+                    Latest development build
+                {%- else -%}
+                    {{ branch.name }}
+                {%- endif %} ▶️</a>
         {% else %}
             {{ branch.name }}
         {% endif %}
@@ -129,17 +56,21 @@ b {
             Build expired on
             <a href="{{ branch.build.workflow_run.html_url }}">
                 <time datetime="{{ branch.build.artifact["expires_at"] }}">{{
-                    branch.build.artifact["expires_at"] | pretty_datetime_from_iso8601
+                    branch.build.artifact["expires_at"] | from_iso8601 | pretty_datetime
                 }}</time></a>
         {% else %}
             Built on
             <a href="{{ branch.build.workflow_run.html_url }}">
                 <time datetime="{{ branch.build.artifact["updated_at"] }}">{{
-                    branch.build.artifact["updated_at"] | pretty_datetime_from_iso8601
+                    branch.build.artifact["updated_at"] | from_iso8601 | pretty_datetime
                 }}</time></a>
             from commit
             <a href="{{ branch.build.workflow_run.head_repository.html_url }}/commit/{{ branch.build.workflow_run.head_sha }}">{{
                 branch.build.workflow_run.head_sha[:7]
+            }}</a>
+            on branch
+            <a href="{{ branch.build.workflow_run.head_repository.html_url }}/commits/{{ branch.name }}">{{
+                branch.name
             }}</a>
         {% endif %}
         </span>
@@ -148,7 +79,10 @@ b {
 </ul>
 </main>
 <footer>
-    Created with <a href="https://github.com/endlessm/amalgamate-pages">Amalgamate Pages</a>.
+    Created with <a href="https://github.com/endlessm/amalgamate-pages">Amalgamate Pages</a> at
+    <time datetime="{{ generation_time.isoformat() }}">{{
+        generation_time | pretty_datetime
+    }}</time>.
 </footer>
 </body>
 </html>

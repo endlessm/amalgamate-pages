@@ -2,7 +2,7 @@
 
 import collections.abc
 import dataclasses
-import datetime
+import datetime as dt
 import logging
 import os
 import pathlib
@@ -47,8 +47,8 @@ def lead_sorted(seq: collections.abc.KeysView[str], first: str) -> list[str]:
         return sorted(seq)
 
 
-def pretty_datetime_from_iso8601(d: str) -> str:
-    return datetime.datetime.fromisoformat(d).strftime("%A %-d %B %Y, %-I:%M %p %Z")
+def pretty_datetime(d: dt.datetime) -> str:
+    return d.strftime("%A %-d %B %Y, %-I:%M %p %Z")
 
 
 class AmalgamatePages:
@@ -75,9 +75,8 @@ class AmalgamatePages:
             loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
             autoescape=jinja2.select_autoescape(),
         )
-        self.jinja_env.filters["pretty_datetime_from_iso8601"] = (
-            pretty_datetime_from_iso8601
-        )
+        self.jinja_env.filters["from_iso8601"] = dt.datetime.fromisoformat
+        self.jinja_env.filters["pretty_datetime"] = pretty_datetime
 
     def _paginate(
         self, url, params: dict | None = None, item_key: str | None = None
@@ -310,7 +309,13 @@ class AmalgamatePages:
                     )
                     continue
 
-                item: dict[str, Any] = {"name": f"{org}/{branch_name}"}
+                item: dict[str, Any] = {}
+                item["name"] = (
+                    branch_name if org == default_org else f"{org}/{branch_name}"
+                )
+                item["is_default"] = (
+                    branch_name == default_branch and org == default_org
+                )
 
                 try:
                     pull_request = pull_requests[f"{org}:{branch_name}"][0]
@@ -364,11 +369,13 @@ class AmalgamatePages:
             "branches.html",
             branches_dir / "index.html",
             {
-                "title": "Branches",
+                "repo_details": repo_details,
                 "latest_release": latest_release,
                 "branches": items,
+                "generation_time": dt.datetime.now(tz=dt.timezone.utc),
             },
         )
+        shutil.copy("branches.css", branches_dir / "branches.css")
 
         github_output = os.environ.get("GITHUB_OUTPUT")
         if github_output:
@@ -377,7 +384,7 @@ class AmalgamatePages:
 
         logging.info("Site assembled at %s", tmpdir)
 
-        self.session.cache.delete(older_than=datetime.timedelta(days=7))
+        self.session.cache.delete(older_than=dt.timedelta(days=7))
 
 
 def setup_logging() -> None:
