@@ -369,6 +369,7 @@ class AmalgamatePages:
                 "title": "Branches",
                 "latest_release": latest_release,
                 "branches": items,
+                "generation_time": dt.datetime.now(tz=dt.timezone.utc),
             },
         )
 
