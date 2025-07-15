@@ -2,6 +2,7 @@
     --primary: #333;
     --secondary: #666;
     --bg-color: #fff;
+    --box-bg-color: #eee;
     --link-color: #00e;
 }
 
@@ -10,6 +11,7 @@
         --primary: #eee;
         --secondary: #ccc;
         --bg-color: #222;
+        --box-bg-color: #333;
         --link-color: #55f;
     }
 }
@@ -56,14 +58,14 @@ a {
 ul {
     list-style: none;
     padding: 0;
+    margin: 0;
 }
 
 ul li {
-    padding-bottom: 1.5rem;
+    padding: 1.5rem;
     margin-bottom: 1rem;
-    border-color: var(--secondary);
-    border-style: solid;
-    border-width: 0 0 1px 0;
+    background-color: var(--box-bg-color);
+    border-radius: 1.5rem;
 }
 
 b {
