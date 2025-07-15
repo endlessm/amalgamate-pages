@@ -2,10 +2,13 @@
 <html lang=en>
 <head>
 <meta charset=utf-8>
-<title>{{ title }}</title>
+<title>{{ repo_details.name | replace("-", " ") | title }} Branches</title>
 <link rel="stylesheet" href="branches.css">
 </head>
 <body>
+<header>
+    <h1>Playable branches from <a href="{{ repo_details.html_url}}">{{ repo_details.full_name }}</a></h1>
+</header>
 <main>
 <ul>
 {% if latest_release %}
