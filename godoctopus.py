@@ -313,6 +313,9 @@ class AmalgamatePages:
                 item["name"] = (
                     branch_name if org == default_org else f"{org}/{branch_name}"
                 )
+                item["is_default"] = (
+                    branch_name == default_branch and org == default_org
+                )
 
                 try:
                     pull_request = pull_requests[f"{org}:{branch_name}"][0]
