@@ -15,6 +15,8 @@ import jinja2
 import requests
 import requests_cache
 
+API = "https://api.github.com"
+
 
 class ConfigurationError(Exception):
     pass
@@ -112,13 +114,13 @@ class AmalgamatePages:
             params = None
 
     def get_default_repo_details(self) -> dict[str, Any]:
-        response = self.session.get(f"https://api.github.com/repos/{self.default_repo}")
+        response = self.session.get(f"{API}/repos/{self.default_repo}")
         response.raise_for_status()
         return response.json()
 
     def find_workflow(self) -> dict[str, Any]:
         for workflow in self._paginate(
-            f"https://api.github.com/repos/{self.default_repo}/actions/workflows",
+            f"{API}/repos/{self.default_repo}/actions/workflows",
             item_key="workflows",
         ):
             if workflow["name"] == self.workflow_name:
@@ -133,7 +135,7 @@ class AmalgamatePages:
         try:
             return list(
                 self._paginate(
-                    f"https://api.github.com/repos/{repo}/branches",
+                    f"{API}/repos/{repo}/branches",
                 )
             )
         except requests.HTTPError as error:
@@ -155,7 +157,7 @@ class AmalgamatePages:
         branch_prs: dict[str, list[dict]] = {}
 
         for pr in self._paginate(
-            f"https://api.github.com/repos/{self.default_repo}/pulls",
+            f"{API}/repos/{self.default_repo}/pulls",
             params={"state": "all"},
         ):
             branch_prs.setdefault(pr["head"]["label"], []).append(pr)
@@ -178,7 +180,7 @@ class AmalgamatePages:
     def find_latest_artifacts(self, workflow_id: int) -> dict[str, Fork]:
         artifacts: dict[str, Fork] = {}
         for run in self._paginate(
-            f"https://api.github.com/repos/{self.default_repo}/actions/workflows/{workflow_id}/runs",
+            f"{API}/repos/{self.default_repo}/actions/workflows/{workflow_id}/runs",
             params={"status": "success"},
             item_key="workflow_runs",
         ):
@@ -237,9 +239,7 @@ class AmalgamatePages:
         # https://docs.github.com/en/rest/releases/releases?apiVersion=2022-11-28#get-the-latest-release
         # does not allow you to fetch the latest prerelease, and currently all
         # releases in Threadbare are prereleases.
-        for release in self._paginate(
-            f"https://api.github.com/repos/{self.default_repo}/releases"
-        ):
+        for release in self._paginate(f"{API}/repos/{self.default_repo}/releases"):
             if release["draft"]:
                 continue
 
