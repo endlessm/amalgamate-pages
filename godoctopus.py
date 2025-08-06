@@ -16,6 +16,10 @@ import requests
 import requests_cache
 
 
+class ConfigurationError(Exception):
+    pass
+
+
 @dataclasses.dataclass
 class Build:
     workflow_run: dict
@@ -120,7 +124,10 @@ class AmalgamatePages:
             if workflow["name"] == self.workflow_name:
                 return workflow
 
-        raise ValueError(f"Workflow '{self.workflow_name}' not found")
+        raise ConfigurationError(
+            f"Workflow '{self.workflow_name}' not found. "
+            "Has this project been built at least once?"
+        )
 
     def list_branches(self, repo: str) -> list[dict]:
         try:
@@ -417,8 +424,12 @@ def main() -> None:
 
     session = make_session(api_token)
 
-    amalgamate_pages = AmalgamatePages(session, repo, workflow_name, artifact_name)
-    amalgamate_pages.run()
+    try:
+        amalgamate_pages = AmalgamatePages(session, repo, workflow_name, artifact_name)
+        amalgamate_pages.run()
+    except ConfigurationError as e:
+        print(f"::error::{e.args[0]}")
+        raise
 
     session.cache.delete(older_than=dt.timedelta(days=7))
 
