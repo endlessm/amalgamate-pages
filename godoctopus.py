@@ -401,6 +401,29 @@ class AmalgamatePages:
         logging.info("Site assembled at %s", tmpdir)
 
 
+def check_pages_configuration(session: requests.Session, repo: str) -> None:
+    logging.debug("Checking GitHub Pages configuration")
+
+    get_response = session.get(f"{API}/repos/{repo}/pages")
+    match get_response.status_code:
+        case 404:
+            logging.debug("GitHub Pages configuration not found")
+        case 200:
+            data = get_response.json()
+            if data["build_type"] == "workflow":
+                logging.debug(
+                    "GitHub Pages is configured correctly for this repository"
+                )
+                return
+        case _:
+            get_response.raise_for_status()
+
+    raise ConfigurationError(
+        "GitHub Pages must be enabled, with the source set to GitHub Actions, in the repository settings.",
+        f"Go to https://github.com/{ repo }/settings/pages to fix this.",
+    )
+
+
 def setup_logging() -> None:
     log_format = "+ %(asctime)s %(levelname)s %(name)s: %(message)s"
     date_format = "%H:%M:%S"
@@ -425,10 +448,13 @@ def main() -> None:
     session = make_session(api_token)
 
     try:
+        check_pages_configuration(session, repo)
+
         amalgamate_pages = AmalgamatePages(session, repo, workflow_name, artifact_name)
         amalgamate_pages.run()
     except ConfigurationError as e:
-        print(f"::error::{e.args[0]}")
+        for message in e.args:
+            print(f"::error::{message}")
         raise
 
     session.cache.delete(older_than=dt.timedelta(days=7))
