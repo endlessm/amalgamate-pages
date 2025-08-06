@@ -13,6 +13,6 @@ repos:
     - id: black
 
 - repo: https://github.com/astral-sh/uv-pre-commit
-  rev: 0.6.2
+  rev: 0.8.5
   hooks:
     - id: uv-lock
