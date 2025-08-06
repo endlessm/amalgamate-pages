@@ -51,25 +51,34 @@ def pretty_datetime(d: dt.datetime) -> str:
     return d.strftime("%A %-d %B %Y, %-I:%M %p %Z")
 
 
+def make_session(api_token: str) -> requests_cache.CachedSession:
+    cache_backend = requests_cache.SQLiteCache()
+    session = requests_cache.CachedSession(
+        backend=cache_backend, cache_control=True, expire_after=60
+    )
+    session.headers.update(
+        {
+            "Authorization": f"Bearer {api_token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+    )
+
+    return session
+
+
 class AmalgamatePages:
     def __init__(
-        self, api_token: str, default_repo: str, workflow_name: str, artifact_name: str
+        self,
+        session: requests.Session,
+        default_repo: str,
+        workflow_name: str,
+        artifact_name: str,
     ):
+        self.session = session
         self.default_repo = default_repo
         self.workflow_name = workflow_name
         self.artifact_name = artifact_name
-
-        backend = requests_cache.SQLiteCache()
-        self.session = requests_cache.CachedSession(
-            backend=backend, cache_control=True, expire_after=60
-        )
-        self.session.headers.update(
-            {
-                "Authorization": f"Bearer {api_token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            }
-        )
 
         self.jinja_env = jinja2.Environment(
             loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
@@ -384,8 +393,6 @@ class AmalgamatePages:
 
         logging.info("Site assembled at %s", tmpdir)
 
-        self.session.cache.delete(older_than=dt.timedelta(days=7))
-
 
 def setup_logging() -> None:
     log_format = "+ %(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -408,8 +415,12 @@ def main() -> None:
 
     setup_logging()
 
-    amalgamate_pages = AmalgamatePages(api_token, repo, workflow_name, artifact_name)
+    session = make_session(api_token)
+
+    amalgamate_pages = AmalgamatePages(session, repo, workflow_name, artifact_name)
     amalgamate_pages.run()
+
+    session.cache.delete(older_than=dt.timedelta(days=7))
 
 
 if __name__ == "__main__":
