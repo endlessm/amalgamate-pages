@@ -27,7 +27,7 @@ runs:
       shell: bash
       working-directory: ${{ github.action_path }}
       run: |
-        uv run --frozen godoctopus.py
+        uv run --frozen godoctopus.py amalgamate
       env:
         DEBUG: ${{ runner.debug }}
         GITHUB_TOKEN: ${{ github.token }}

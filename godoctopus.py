@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import collections.abc
 import dataclasses
 import datetime as dt
@@ -455,21 +456,37 @@ def setup_logging() -> None:
     logging.basicConfig(level=level, format=log_format, datefmt=date_format)
 
 
-def main() -> None:
-    api_token = os.environ["GITHUB_TOKEN"]
+def amalgamate(
+    api: GitHubApi,
+    args: argparse.Namespace,
+) -> None:
     repo = os.environ["GITHUB_REPOSITORY"]
     workflow_name = os.environ["WORKFLOW_NAME"]
     artifact_name = os.environ["ARTIFACT_NAME"]
+    pages_config = get_pages_config(api.session, repo)
+
+    amalgamate_pages = AmalgamatePages(
+        api, repo, pages_config, workflow_name, artifact_name
+    )
+    amalgamate_pages.run()
+
+
+def main() -> None:
+    api_token = os.environ["GITHUB_TOKEN"]
 
     setup_logging()
 
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(title="subcommand", required=True)
+
+    parser_amalgamate = subparsers.add_parser("amalgamate")
+    parser_amalgamate.set_defaults(func=amalgamate)
+
+    args = parser.parse_args()
     api = GitHubApi(api_token)
 
     try:
-        check_pages_configuration(api.session, repo)
-
-        amalgamate_pages = AmalgamatePages(api, repo, workflow_name, artifact_name)
-        amalgamate_pages.run()
+        args.func(api, args)
     except ConfigurationError as e:
         for message in e.args:
             print(f"::error::{message}")
