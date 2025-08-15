@@ -52,57 +52,21 @@ class Release:
 PullRequest = dict
 
 
-def lead_sorted(seq: collections.abc.KeysView[str], first: str) -> list[str]:
-    """Return a list with `first` at the front if present, followed by the rest sorted."""
-    if first in seq:
-        return [first] + sorted(seq - {first})
-    else:
-        return sorted(seq)
-
-
-def pretty_datetime(d: dt.datetime) -> str:
-    return d.strftime("%A %-d %B %Y, %-I:%M %p %Z")
-
-
-def make_session(api_token: str) -> requests_cache.CachedSession:
-    cache_backend = requests_cache.SQLiteCache()
-    session = requests_cache.CachedSession(
-        backend=cache_backend, cache_control=True, expire_after=60
-    )
-    session.headers.update(
-        {
-            "Authorization": f"Bearer {api_token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
-    )
-
-    return session
-
-
-class AmalgamatePages:
-    repo_details: dict[str, Any]
-
-    def __init__(
-        self,
-        session: requests.Session,
-        default_repo: str,
-        workflow_name: str,
-        artifact_name: str,
-    ):
-        self.session = session
-        self.default_repo = default_repo
-        self.workflow_name = workflow_name
-        self.artifact_name = artifact_name
-
-        self.jinja_env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
-            autoescape=jinja2.select_autoescape(),
+class GitHubApi:
+    def __init__(self, api_token: str):
+        cache_backend = requests_cache.SQLiteCache()
+        self.session = requests_cache.CachedSession(
+            backend=cache_backend, cache_control=True, expire_after=60
         )
-        self.jinja_env.filters["from_iso8601"] = dt.datetime.fromisoformat
-        self.jinja_env.filters["pretty_datetime"] = pretty_datetime
+        self.session.headers.update(
+            {
+                "Authorization": f"Bearer {api_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            }
+        )
 
-    def _paginate(
+    def paginate(
         self, url, params: dict | None = None, item_key: str | None = None
     ) -> Iterator[dict]:
         if not params:
@@ -122,8 +86,43 @@ class AmalgamatePages:
             url = response.links["next"]["url"]
             params = None
 
+
+def lead_sorted(seq: collections.abc.KeysView[str], first: str) -> list[str]:
+    """Return a list with `first` at the front if present, followed by the rest sorted."""
+    if first in seq:
+        return [first] + sorted(seq - {first})
+    else:
+        return sorted(seq)
+
+
+def pretty_datetime(d: dt.datetime) -> str:
+    return d.strftime("%A %-d %B %Y, %-I:%M %p %Z")
+
+
+class AmalgamatePages:
+    repo_details: dict[str, Any]
+
+    def __init__(
+        self,
+        api: GitHubApi,
+        default_repo: str,
+        workflow_name: str,
+        artifact_name: str,
+    ):
+        self.api = api
+        self.default_repo = default_repo
+        self.workflow_name = workflow_name
+        self.artifact_name = artifact_name
+
+        self.jinja_env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
+            autoescape=jinja2.select_autoescape(),
+        )
+        self.jinja_env.filters["from_iso8601"] = dt.datetime.fromisoformat
+        self.jinja_env.filters["pretty_datetime"] = pretty_datetime
+
     def get_default_repo_details(self) -> None:
-        response = self.session.get(f"{API}/repos/{self.default_repo}")
+        response = self.api.session.get(f"{API}/repos/{self.default_repo}")
         response.raise_for_status()
         self.repo_details = response.json()
 
@@ -136,7 +135,7 @@ class AmalgamatePages:
         return self.repo_details["default_branch"]
 
     def find_workflow(self) -> dict[str, Any]:
-        for workflow in self._paginate(
+        for workflow in self.api.paginate(
             f"{API}/repos/{self.default_repo}/actions/workflows",
             item_key="workflows",
         ):
@@ -150,11 +149,7 @@ class AmalgamatePages:
 
     def list_branches(self, repo: str) -> list[dict]:
         try:
-            return list(
-                self._paginate(
-                    f"{API}/repos/{repo}/branches",
-                )
-            )
+            return list(self.api.paginate(f"{API}/repos/{repo}/branches"))
         except requests.HTTPError as error:
             if error.response.status_code != 404:
                 raise
@@ -173,7 +168,7 @@ class AmalgamatePages:
         """
         branch_prs: dict[str, list[PullRequest]] = {}
 
-        for pr in self._paginate(
+        for pr in self.api.paginate(
             f"{API}/repos/{self.default_repo}/pulls",
             params={"state": "all"},
         ):
@@ -185,14 +180,14 @@ class AmalgamatePages:
         }
 
     def find_artifact(self, artifacts_url: str) -> dict[str, Any] | None:
-        for artifact in self._paginate(artifacts_url, item_key="artifacts"):
+        for artifact in self.api.paginate(artifacts_url, item_key="artifacts"):
             if artifact["name"] == self.artifact_name:
                 return artifact
         return None
 
     def find_latest_artifacts(self, workflow_id: int) -> dict[str, Fork]:
         artifacts: dict[str, Fork] = {}
-        for run in self._paginate(
+        for run in self.api.paginate(
             f"{API}/repos/{self.default_repo}/actions/workflows/{workflow_id}/runs",
             params={"status": "success"},
             item_key="workflow_runs",
@@ -258,7 +253,7 @@ class AmalgamatePages:
         # https://docs.github.com/en/rest/releases/releases?apiVersion=2022-11-28#get-the-latest-release
         # does not allow you to fetch the latest prerelease, and currently all
         # releases in Threadbare are prereleases.
-        for release in self._paginate(f"{API}/repos/{self.default_repo}/releases"):
+        for release in self.api.paginate(f"{API}/repos/{self.default_repo}/releases"):
             if release["draft"]:
                 continue
 
@@ -282,7 +277,7 @@ class AmalgamatePages:
     def download_and_extract(
         self, url: str, dest_dir: pathlib.Path, headers: dict[str, str] | None = None
     ) -> None:
-        with self.session.get(url, headers=headers, stream=True) as response:
+        with self.api.session.get(url, headers=headers, stream=True) as response:
             response.raise_for_status()
             with tempfile.TemporaryFile() as f:
                 shutil.copyfileobj(response.raw, f)
@@ -462,19 +457,19 @@ def main() -> None:
 
     setup_logging()
 
-    session = make_session(api_token)
+    api = GitHubApi(api_token)
 
     try:
-        check_pages_configuration(session, repo)
+        check_pages_configuration(api.session, repo)
 
-        amalgamate_pages = AmalgamatePages(session, repo, workflow_name, artifact_name)
+        amalgamate_pages = AmalgamatePages(api, repo, workflow_name, artifact_name)
         amalgamate_pages.run()
     except ConfigurationError as e:
         for message in e.args:
             print(f"::error::{message}")
         raise
 
-    session.cache.delete(older_than=dt.timedelta(days=7))
+    api.session.cache.delete(older_than=dt.timedelta(days=7))
 
 
 if __name__ == "__main__":
