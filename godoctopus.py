@@ -99,6 +99,17 @@ def pretty_datetime(d: dt.datetime) -> str:
     return d.strftime("%A %-d %B %Y, %-I:%M %p %Z")
 
 
+def make_jinja2_env() -> jinja2.Environment:
+    jinja_env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
+        autoescape=jinja2.select_autoescape(),
+    )
+    jinja_env.filters["from_iso8601"] = dt.datetime.fromisoformat
+    jinja_env.filters["pretty_datetime"] = pretty_datetime
+
+    return jinja_env
+
+
 class AmalgamatePages:
     repo_details: dict[str, Any]
 
@@ -114,12 +125,7 @@ class AmalgamatePages:
         self.workflow_name = workflow_name
         self.artifact_name = artifact_name
 
-        self.jinja_env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
-            autoescape=jinja2.select_autoescape(),
-        )
-        self.jinja_env.filters["from_iso8601"] = dt.datetime.fromisoformat
-        self.jinja_env.filters["pretty_datetime"] = pretty_datetime
+        self.jinja_env = make_jinja2_env()
 
     def get_default_repo_details(self) -> None:
         response = self.api.session.get(f"{API}/repos/{self.default_repo}")
