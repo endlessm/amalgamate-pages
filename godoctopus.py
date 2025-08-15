@@ -4,6 +4,7 @@ import argparse
 import collections.abc
 import dataclasses
 import datetime as dt
+import json
 import logging
 import os
 import pathlib
@@ -17,6 +18,8 @@ import requests
 import requests_cache
 
 API = "https://api.github.com"
+COMMENT_FILE = pathlib.Path(__file__).parent / "pr-comments.json"
+COMMENT_TAG = "<!--amalgamate-pages-->"
 
 
 class ConfigurationError(Exception):
@@ -50,6 +53,7 @@ class Release:
     asset: dict
 
 
+PagesConfig = dict[str, Any]
 PullRequest = dict
 
 
@@ -103,7 +107,9 @@ def pretty_datetime(d: dt.datetime) -> str:
 def make_jinja2_env() -> jinja2.Environment:
     jinja_env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
-        autoescape=jinja2.select_autoescape(),
+        autoescape=jinja2.select_autoescape(
+            enabled_extensions=("html", "htm", "xml", "md")
+        ),
     )
     jinja_env.filters["from_iso8601"] = dt.datetime.fromisoformat
     jinja_env.filters["pretty_datetime"] = pretty_datetime
@@ -118,11 +124,13 @@ class AmalgamatePages:
         self,
         api: GitHubApi,
         default_repo: str,
+        pages_config: PagesConfig,
         workflow_name: str,
         artifact_name: str,
     ):
         self.api = api
         self.default_repo = default_repo
+        self.pages_config = pages_config
         self.workflow_name = workflow_name
         self.artifact_name = artifact_name
 
@@ -140,6 +148,10 @@ class AmalgamatePages:
     @property
     def default_branch(self) -> str:
         return self.repo_details["default_branch"]
+
+    @property
+    def base_url(self) -> str:
+        return self.pages_config["html_url"]
 
     def find_workflow(self) -> dict[str, Any]:
         for workflow in self.api.paginate(
@@ -352,6 +364,7 @@ class AmalgamatePages:
             self.download_release(latest_release, dest_dir)
             have_toplevel_build = True
 
+        pr_comments = []
         items = []
         branches_dir = dest_dir / "branches"
         branches_dir.mkdir()
@@ -373,6 +386,7 @@ class AmalgamatePages:
                     branch.name,
                     pr["url"],
                 )
+                pr_comments.append([pr["comments_url"], None])
                 continue
 
             if branch.build and not branch.build.artifact["expired"]:
@@ -392,6 +406,10 @@ class AmalgamatePages:
                 item["relative_path"] = branch_dir.relative_to(
                     branches_dir, walk_up=True
                 )
+
+                if pr:
+                    build_url = self.base_url + str(branch_dir.relative_to(dest_dir))
+                    pr_comments.append([pr["comments_url"], build_url])
 
             items.append(item)
 
@@ -419,8 +437,11 @@ class AmalgamatePages:
 
         logging.info("Site assembled at %s", dest_dir)
 
+        with COMMENT_FILE.open("w") as f:
+            json.dump(pr_comments, f)
 
-def check_pages_configuration(session: requests.Session, repo: str) -> None:
+
+def get_pages_config(session: requests.Session, repo: str) -> PagesConfig:
     logging.debug("Checking GitHub Pages configuration")
 
     get_response = session.get(f"{API}/repos/{repo}/pages")
@@ -433,7 +454,7 @@ def check_pages_configuration(session: requests.Session, repo: str) -> None:
                 logging.debug(
                     "GitHub Pages is configured correctly for this repository"
                 )
-                return
+                return data
         case _:
             get_response.raise_for_status()
 
@@ -471,6 +492,36 @@ def amalgamate(
     amalgamate_pages.run()
 
 
+def comment(
+    api: GitHubApi,
+    args: argparse.Namespace,
+) -> None:
+    with (pathlib.Path(__file__).parent / "pr-comments.json").open("r") as f:
+        pr_comments = json.load(f)
+
+    template = make_jinja2_env().get_template("comment.md")
+
+    for comments_url, build_url in pr_comments:
+        comment: dict | None
+
+        for comment in api.paginate(comments_url):
+            if comment["body"].startswith(COMMENT_TAG):
+                break
+        else:
+            comment = None
+
+        body = "\n\n".join((COMMENT_TAG, template.render(url=build_url)))
+        if comment:
+            if body != comment["body"]:
+                logging.info("Updating comment %s", comment["url"])
+                response = api.session.patch(comment["url"], json={"body": body})
+                response.raise_for_status()
+        elif build_url is not None:
+            logging.info("Posting new comment to %s", comments_url)
+            response = api.session.post(comments_url, json={"body": body})
+            response.raise_for_status()
+
+
 def main() -> None:
     api_token = os.environ["GITHUB_TOKEN"]
 
@@ -481,6 +532,9 @@ def main() -> None:
 
     parser_amalgamate = subparsers.add_parser("amalgamate")
     parser_amalgamate.set_defaults(func=amalgamate)
+
+    parser_amalgamate = subparsers.add_parser("comment")
+    parser_amalgamate.set_defaults(func=comment)
 
     args = parser.parse_args()
     api = GitHubApi(api_token)

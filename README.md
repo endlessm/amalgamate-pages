@@ -90,6 +90,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  pull-requests: write
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: true
