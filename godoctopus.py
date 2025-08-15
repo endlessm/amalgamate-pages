@@ -49,6 +49,9 @@ class Release:
     asset: dict
 
 
+PullRequest = dict
+
+
 def lead_sorted(seq: collections.abc.KeysView[str], first: str) -> list[str]:
     """Return a list with `first` at the front if present, followed by the rest sorted."""
     if first in seq:
@@ -161,14 +164,14 @@ class AmalgamatePages:
             )
             return []
 
-    def list_pull_requests(self) -> dict[str, dict]:
+    def list_pull_requests(self) -> dict[str, PullRequest]:
         """
         Returns a map from branch label to the best pull request for that branch,
         preferring open PRs to closed ones and more recently-updated ones to older
         ones. "Branch label" here means "user:branch". This is unambiguous because
         any given user/org can have at most one fork of a repo.
         """
-        branch_prs: dict[str, list[dict]] = {}
+        branch_prs: dict[str, list[PullRequest]] = {}
 
         for pr in self._paginate(
             f"{API}/repos/{self.default_repo}/pulls",
@@ -307,8 +310,10 @@ class AmalgamatePages:
             stream.dump(f)  # type: ignore
 
     def iter_branches(
-        self, web_artifacts: dict[str, Fork]
-    ) -> Iterator[tuple[str, Branch]]:
+        self,
+        web_artifacts: dict[str, Fork],
+        pull_requests: dict[str, PullRequest],
+    ) -> Iterator[tuple[str, Branch, PullRequest | None]]:
         for org in lead_sorted(web_artifacts.keys(), self.default_org):
             fork = web_artifacts[org]
             branch_names = fork.live_branches.keys()
@@ -322,7 +327,8 @@ class AmalgamatePages:
                     )
                     continue
 
-                yield org, branch
+                pull_request = pull_requests.get(f"{org}:{branch.name}")
+                yield org, branch, pull_request
 
     def run(self) -> None:
         self.get_default_repo_details()
@@ -345,28 +351,23 @@ class AmalgamatePages:
         branches_dir = tmpdir / "branches"
         branches_dir.mkdir()
 
-        for org, branch in self.iter_branches(web_artifacts):
+        for org, branch, pr in self.iter_branches(web_artifacts, pull_requests):
             is_default = branch.name == self.default_branch and org == self.default_org
             item: dict[str, Any] = {
                 "org": org,
                 "name": branch.name,
                 "is_default": is_default,
+                "pull_request": pr,
             }
 
-            try:
-                pull_request = pull_requests[f"{org}:{branch.name}"]
-            except (KeyError, IndexError):
-                pass
-            else:
-                if pull_request["state"] == "closed":
-                    logging.info(
-                        "Ignoring branch %s:%s; newest pull request %s is closed",
-                        org,
-                        branch.name,
-                        pull_request["url"],
-                    )
-                    continue
-                item["pull_request"] = pull_request
+            if pr and pr["state"] == "closed":
+                logging.info(
+                    "Ignoring branch %s:%s; newest pull request %s is closed",
+                    org,
+                    branch.name,
+                    pr["url"],
+                )
+                continue
 
             if branch.build:
                 item["build"] = branch.build
