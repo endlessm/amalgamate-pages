@@ -33,6 +33,10 @@ class Branch:
     info: dict
     build: Build | None
 
+    @property
+    def name(self) -> str:
+        return self.info["name"]
+
 
 @dataclasses.dataclass
 class Fork:
@@ -74,6 +78,8 @@ def make_session(api_token: str) -> requests_cache.CachedSession:
 
 
 class AmalgamatePages:
+    repo_details: dict[str, Any]
+
     def __init__(
         self,
         session: requests.Session,
@@ -113,10 +119,18 @@ class AmalgamatePages:
             url = response.links["next"]["url"]
             params = None
 
-    def get_default_repo_details(self) -> dict[str, Any]:
+    def get_default_repo_details(self) -> None:
         response = self.session.get(f"{API}/repos/{self.default_repo}")
         response.raise_for_status()
-        return response.json()
+        self.repo_details = response.json()
+
+    @property
+    def default_org(self) -> str:
+        return self.repo_details["owner"]["login"]
+
+    @property
+    def default_branch(self) -> str:
+        return self.repo_details["default_branch"]
 
     def find_workflow(self) -> dict[str, Any]:
         for workflow in self._paginate(
@@ -296,10 +310,26 @@ class AmalgamatePages:
             # while f is TextIOWrapper[_WrappedBuffer]
             stream.dump(f)  # type: ignore
 
+    def iter_branches(
+        self, web_artifacts: dict[str, Fork]
+    ) -> Iterator[tuple[str, Branch]]:
+        for org in lead_sorted(web_artifacts.keys(), self.default_org):
+            fork = web_artifacts[org]
+            branch_names = fork.live_branches.keys()
+            for branch_name in lead_sorted(branch_names, self.default_branch):
+                branch = fork.live_branches[branch_name]
+                if not branch.build and org != self.default_org:
+                    logging.debug(
+                        "Ignoring never-built third-party branch %s:%s",
+                        org,
+                        branch_name,
+                    )
+                    continue
+
+                yield org, branch
+
     def run(self) -> None:
-        repo_details = self.get_default_repo_details()
-        default_org = repo_details["owner"]["login"]
-        default_branch = repo_details["default_branch"]
+        self.get_default_repo_details()
 
         latest_release = self.get_latest_built_release()
 
@@ -319,64 +349,51 @@ class AmalgamatePages:
         branches_dir = tmpdir / "branches"
         branches_dir.mkdir()
 
-        for org in lead_sorted(web_artifacts.keys(), default_org):
-            fork = web_artifacts[org]
-            for branch_name in lead_sorted(fork.live_branches.keys(), default_branch):
-                branch = fork.live_branches[branch_name]
-                if not branch.build and org != default_org:
-                    logging.debug(
-                        "Ignoring never-built third-party branch %s:%s",
+        for org, branch in self.iter_branches(web_artifacts):
+            is_default = branch.name == self.default_branch and org == self.default_org
+            item: dict[str, Any] = {
+                "org": org,
+                "name": branch.name,
+                "is_default": is_default,
+            }
+
+            try:
+                pull_request = pull_requests[f"{org}:{branch.name}"][0]
+            except (KeyError, IndexError):
+                pass
+            else:
+                if pull_request["state"] == "closed":
+                    logging.info(
+                        "Ignoring branch %s:%s; newest pull request %s is closed",
                         org,
-                        branch_name,
+                        branch.name,
+                        pull_request["url"],
                     )
                     continue
+                item["pull_request"] = pull_request
 
-                is_default = branch_name == default_branch and org == default_org
-                item: dict[str, Any] = {
-                    "org": org,
-                    "name": branch_name,
-                    "is_default": is_default,
-                }
+            if branch.build:
+                item["build"] = branch.build
 
-                try:
-                    pull_request = pull_requests[f"{org}:{branch_name}"][0]
-                except (KeyError, IndexError):
-                    pass
-                else:
-                    if pull_request["state"] == "closed":
-                        logging.info(
-                            "Ignoring branch %s:%s; newest pull request %s is closed",
-                            item["org"],
-                            item["branch_name"],
-                            pull_request["url"],
-                        )
-                        continue
-                    item["pull_request"] = pull_request
+                if not branch.build.artifact["expired"]:
+                    url = branch.build.artifact["archive_download_url"]
+                    logging.info("Fetching %s:%s export from %s", org, branch.name, url)
 
-                if branch.build:
-                    item["build"] = branch.build
+                    if is_default and not have_toplevel_build:
+                        branch_dir = tmpdir
+                        have_toplevel_build = True
+                    else:
+                        # TODO: Use colon form in directory name, avoiding
+                        # intermediate directory with no index?
+                        branch_dir = branches_dir / org / branch.name
+                        branch_dir.mkdir(parents=True)
 
-                    if not branch.build.artifact["expired"]:
-                        url = branch.build.artifact["archive_download_url"]
-                        logging.info(
-                            "Fetching %s:%s export from %s", org, branch_name, url
-                        )
+                    self.download_and_extract(url, branch_dir)
+                    item["relative_path"] = branch_dir.relative_to(
+                        branches_dir, walk_up=True
+                    )
 
-                        if is_default and not have_toplevel_build:
-                            branch_dir = tmpdir
-                            have_toplevel_build = True
-                        else:
-                            # TODO: Use colon form in directory name, avoiding
-                            # intermediate directory with no index?
-                            branch_dir = branches_dir / org / branch_name
-                            branch_dir.mkdir(parents=True)
-
-                        self.download_and_extract(url, branch_dir)
-                        item["relative_path"] = branch_dir.relative_to(
-                            branches_dir, walk_up=True
-                        )
-
-                items.append(item)
+            items.append(item)
 
         if not have_toplevel_build:
             self.render_template(
@@ -387,7 +404,7 @@ class AmalgamatePages:
             "branches.html",
             branches_dir / "index.html",
             {
-                "repo_details": repo_details,
+                "repo_details": self.repo_details,
                 "latest_release": latest_release,
                 "branches": items,
                 "generation_time": dt.datetime.now(tz=dt.timezone.utc),
