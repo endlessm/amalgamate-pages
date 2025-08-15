@@ -161,10 +161,10 @@ class AmalgamatePages:
             )
             return []
 
-    def list_pull_requests(self) -> dict[str, list[dict]]:
+    def list_pull_requests(self) -> dict[str, dict]:
         """
-        Returns a map from branch label to a list of pull requests for that branch,
-        with open PRs before closed ones and more recently-updated ones before older
+        Returns a map from branch label to the best pull request for that branch,
+        preferring open PRs to closed ones and more recently-updated ones to older
         ones. "Branch label" here means "user:branch". This is unambiguous because
         any given user/org can have at most one fork of a repo.
         """
@@ -176,14 +176,10 @@ class AmalgamatePages:
         ):
             branch_prs.setdefault(pr["head"]["label"], []).append(pr)
 
-        for prs in branch_prs.values():
-            # Sort open pull requests before closed ones, then more recently-updated
-            # ones before older ones.
-            prs.sort(
-                key=lambda pr: (pr["state"] == "open", pr["updated_at"]), reverse=True
-            )
-
-        return branch_prs
+        return {
+            label: max(prs, key=lambda pr: (pr["state"] == "open", pr["updated_at"]))
+            for label, prs in branch_prs.items()
+        }
 
     def find_artifact(self, artifacts_url: str) -> dict[str, Any] | None:
         for artifact in self._paginate(artifacts_url, item_key="artifacts"):
@@ -358,7 +354,7 @@ class AmalgamatePages:
             }
 
             try:
-                pull_request = pull_requests[f"{org}:{branch.name}"][0]
+                pull_request = pull_requests[f"{org}:{branch.name}"]
             except (KeyError, IndexError):
                 pass
             else:
