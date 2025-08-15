@@ -331,13 +331,12 @@ class AmalgamatePages:
                     )
                     continue
 
-                item: dict[str, Any] = {}
-                item["name"] = (
-                    branch_name if org == default_org else f"{org}/{branch_name}"
-                )
-                item["is_default"] = (
-                    branch_name == default_branch and org == default_org
-                )
+                is_default = branch_name == default_branch and org == default_org
+                item: dict[str, Any] = {
+                    "org": org,
+                    "name": branch_name,
+                    "is_default": is_default,
+                }
 
                 try:
                     pull_request = pull_requests[f"{org}:{branch_name}"][0]
@@ -346,8 +345,9 @@ class AmalgamatePages:
                 else:
                     if pull_request["state"] == "closed":
                         logging.info(
-                            "Ignoring branch %s; newest pull request %s is closed",
-                            item["name"],
+                            "Ignoring branch %s:%s; newest pull request %s is closed",
+                            item["org"],
+                            item["branch_name"],
                             pull_request["url"],
                         )
                         continue
@@ -362,11 +362,7 @@ class AmalgamatePages:
                             "Fetching %s:%s export from %s", org, branch_name, url
                         )
 
-                        if (
-                            org == default_org
-                            and branch_name == default_branch
-                            and not have_toplevel_build
-                        ):
+                        if is_default and not have_toplevel_build:
                             branch_dir = tmpdir
                             have_toplevel_build = True
                         else:
