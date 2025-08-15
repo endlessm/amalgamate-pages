@@ -275,6 +275,19 @@ class AmalgamatePages:
                 shutil.copyfileobj(response.raw, f)
                 zipfile.ZipFile(f).extractall(dest_dir)
 
+    def download_release(self, release: Release, dest_dir: pathlib.Path) -> None:
+        # Downloading a release asset requires setting the Accept header to
+        # application/octet-stream, or else you just get the JSON
+        # description of the asset back.
+        #
+        # https://docs.github.com/en/rest/releases/assets?apiVersion=2022-11-28
+        #
+        # However, setting Accept: application/octet-stream for build
+        # artifacts does not work! So we need a different Accept header in
+        # the two cases.
+        headers = {"Accept": "application/octet-stream"}
+        self.download_and_extract(release.asset["url"], dest_dir, headers=headers)
+
     def render_template(self, name: str, target: pathlib.Path, context: dict) -> None:
         template = self.jinja_env.get_template(name)
         with target.open("w") as f:
@@ -299,20 +312,7 @@ class AmalgamatePages:
         have_toplevel_build = False
 
         if latest_release is not None:
-            # Downloading a release asset requires setting the Accept header to
-            # application/octet-stream, or else you just get the JSON
-            # description of the asset back.
-            #
-            # https://docs.github.com/en/rest/releases/assets?apiVersion=2022-11-28
-            #
-            # However, setting Accept: application/octet-stream for build
-            # artifacts does not work! So we need a different Accept header in
-            # the two cases.
-            self.download_and_extract(
-                latest_release.asset["url"],
-                tmpdir,
-                headers={"Accept": "application/octet-stream"},
-            )
+            self.download_release(latest_release, tmpdir)
             have_toplevel_build = True
 
         items = []
