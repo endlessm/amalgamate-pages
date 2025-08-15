@@ -28,17 +28,21 @@
     </li>
 {% endif %}
 {% for branch in branches %}
+{% set title %}
+    {%- if branch.is_default -%}
+        Latest development build
+    {%- elif branch.org == repo_details.owner.login -%}
+        {{ branch.name }}
+    {%- else -%}
+        {{ branch.org }}:{{ branch.name }}
+    {%- endif -%}
+{% endset %}
     <li>
         <b>
         {% if branch.relative_path %}
-            <a href="{{ branch.relative_path | urlencode }}" title="Play this branch">
-                {%- if branch.is_default -%}
-                    Latest development build
-                {%- else -%}
-                    {{ branch.name }}
-                {%- endif %} ▶️</a>
+            <a href="{{ branch.relative_path | urlencode }}" title="Play this branch">{{ title }} ▶️</a>
         {% else %}
-            {{ branch.name }}
+            {{ title }}
         {% endif %}
         </b>
         {% if branch.pull_request %}
