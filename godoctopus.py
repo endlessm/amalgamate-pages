@@ -358,6 +358,7 @@ class AmalgamatePages:
                 "name": branch.name,
                 "is_default": is_default,
                 "pull_request": pr,
+                "build": branch.build,
             }
 
             if pr and pr["state"] == "closed":
@@ -369,26 +370,23 @@ class AmalgamatePages:
                 )
                 continue
 
-            if branch.build:
-                item["build"] = branch.build
+            if branch.build and not branch.build.artifact["expired"]:
+                url = branch.build.artifact["archive_download_url"]
+                logging.info("Fetching %s:%s export from %s", org, branch.name, url)
 
-                if not branch.build.artifact["expired"]:
-                    url = branch.build.artifact["archive_download_url"]
-                    logging.info("Fetching %s:%s export from %s", org, branch.name, url)
+                if is_default and not have_toplevel_build:
+                    branch_dir = tmpdir
+                    have_toplevel_build = True
+                else:
+                    # TODO: Use colon form in directory name, avoiding
+                    # intermediate directory with no index?
+                    branch_dir = branches_dir / org / branch.name
+                    branch_dir.mkdir(parents=True)
 
-                    if is_default and not have_toplevel_build:
-                        branch_dir = tmpdir
-                        have_toplevel_build = True
-                    else:
-                        # TODO: Use colon form in directory name, avoiding
-                        # intermediate directory with no index?
-                        branch_dir = branches_dir / org / branch.name
-                        branch_dir.mkdir(parents=True)
-
-                    self.download_and_extract(url, branch_dir)
-                    item["relative_path"] = branch_dir.relative_to(
-                        branches_dir, walk_up=True
-                    )
+                self.download_and_extract(url, branch_dir)
+                item["relative_path"] = branch_dir.relative_to(
+                    branches_dir, walk_up=True
+                )
 
             items.append(item)
 
