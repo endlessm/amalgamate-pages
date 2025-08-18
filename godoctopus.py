@@ -339,16 +339,19 @@ class AmalgamatePages:
         web_artifacts = self.find_latest_artifacts(workflow["id"])
         pull_requests = self.list_pull_requests()
 
-        tmpdir = pathlib.Path(tempfile.mkdtemp(prefix="godoctopus-"))
-        logging.info("Assembling site at %s", tmpdir)
+        dest_dir = pathlib.Path(__file__).parent / "_build"
+        shutil.rmtree(dest_dir, ignore_errors=True)
+        dest_dir.mkdir(parents=True)
+
+        logging.info("Assembling site at %s", dest_dir)
         have_toplevel_build = False
 
         if latest_release is not None:
-            self.download_release(latest_release, tmpdir)
+            self.download_release(latest_release, dest_dir)
             have_toplevel_build = True
 
         items = []
-        branches_dir = tmpdir / "branches"
+        branches_dir = dest_dir / "branches"
         branches_dir.mkdir()
 
         for org, branch, pr in self.iter_branches(web_artifacts, pull_requests):
@@ -375,7 +378,7 @@ class AmalgamatePages:
                 logging.info("Fetching %s:%s export from %s", org, branch.name, url)
 
                 if is_default and not have_toplevel_build:
-                    branch_dir = tmpdir
+                    branch_dir = dest_dir
                     have_toplevel_build = True
                 else:
                     # TODO: Use colon form in directory name, avoiding
@@ -392,7 +395,7 @@ class AmalgamatePages:
 
         if not have_toplevel_build:
             self.render_template(
-                "redirect.html", tmpdir / "index.html", {"target": "branches/"}
+                "redirect.html", dest_dir / "index.html", {"target": "branches/"}
             )
 
         self.render_template(
@@ -410,9 +413,9 @@ class AmalgamatePages:
         github_output = os.environ.get("GITHUB_OUTPUT")
         if github_output:
             with open(github_output, "a") as f:
-                f.write(f"path={tmpdir}\n")
+                f.write(f"path={dest_dir}\n")
 
-        logging.info("Site assembled at %s", tmpdir)
+        logging.info("Site assembled at %s", dest_dir)
 
 
 def check_pages_configuration(session: requests.Session, repo: str) -> None:
