@@ -184,16 +184,22 @@ class AmalgamatePages:
             params={"status": "success"},
             item_key="workflow_runs",
         ):
-            owner_label = run["head_repository"]["owner"]["login"]
+            head_repository = run["head_repository"]
+            if head_repository is None:
+                logging.debug(
+                    "Ignoring workflow run %s from deleted fork",
+                    run["html_url"],
+                )
+                continue
+
+            owner_label = head_repository["owner"]["login"]
             try:
                 fork = artifacts[owner_label]
             except KeyError:
                 fork = Fork(
                     live_branches={
                         branch["name"]: Branch(info=branch, build=None)
-                        for branch in self.list_branches(
-                            run["head_repository"]["full_name"]
-                        )
+                        for branch in self.list_branches(head_repository["full_name"])
                     }
                 )
                 artifacts[owner_label] = fork
