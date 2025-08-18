@@ -33,6 +33,10 @@ class Branch:
     info: dict
     build: Build | None
 
+    @property
+    def name(self) -> str:
+        return self.info["name"]
+
 
 @dataclasses.dataclass
 class Fork:
@@ -43,6 +47,9 @@ class Fork:
 class Release:
     data: dict
     asset: dict
+
+
+PullRequest = dict
 
 
 def lead_sorted(seq: collections.abc.KeysView[str], first: str) -> list[str]:
@@ -74,6 +81,8 @@ def make_session(api_token: str) -> requests_cache.CachedSession:
 
 
 class AmalgamatePages:
+    repo_details: dict[str, Any]
+
     def __init__(
         self,
         session: requests.Session,
@@ -113,10 +122,18 @@ class AmalgamatePages:
             url = response.links["next"]["url"]
             params = None
 
-    def get_default_repo_details(self) -> dict[str, Any]:
+    def get_default_repo_details(self) -> None:
         response = self.session.get(f"{API}/repos/{self.default_repo}")
         response.raise_for_status()
-        return response.json()
+        self.repo_details = response.json()
+
+    @property
+    def default_org(self) -> str:
+        return self.repo_details["owner"]["login"]
+
+    @property
+    def default_branch(self) -> str:
+        return self.repo_details["default_branch"]
 
     def find_workflow(self) -> dict[str, Any]:
         for workflow in self._paginate(
@@ -147,14 +164,14 @@ class AmalgamatePages:
             )
             return []
 
-    def list_pull_requests(self) -> dict[str, list[dict]]:
+    def list_pull_requests(self) -> dict[str, PullRequest]:
         """
-        Returns a map from branch label to a list of pull requests for that branch,
-        with open PRs before closed ones and more recently-updated ones before older
+        Returns a map from branch label to the best pull request for that branch,
+        preferring open PRs to closed ones and more recently-updated ones to older
         ones. "Branch label" here means "user:branch". This is unambiguous because
         any given user/org can have at most one fork of a repo.
         """
-        branch_prs: dict[str, list[dict]] = {}
+        branch_prs: dict[str, list[PullRequest]] = {}
 
         for pr in self._paginate(
             f"{API}/repos/{self.default_repo}/pulls",
@@ -162,14 +179,10 @@ class AmalgamatePages:
         ):
             branch_prs.setdefault(pr["head"]["label"], []).append(pr)
 
-        for prs in branch_prs.values():
-            # Sort open pull requests before closed ones, then more recently-updated
-            # ones before older ones.
-            prs.sort(
-                key=lambda pr: (pr["state"] == "open", pr["updated_at"]), reverse=True
-            )
-
-        return branch_prs
+        return {
+            label: max(prs, key=lambda pr: (pr["state"] == "open", pr["updated_at"]))
+            for label, prs in branch_prs.items()
+        }
 
     def find_artifact(self, artifacts_url: str) -> dict[str, Any] | None:
         for artifact in self._paginate(artifacts_url, item_key="artifacts"):
@@ -275,6 +288,19 @@ class AmalgamatePages:
                 shutil.copyfileobj(response.raw, f)
                 zipfile.ZipFile(f).extractall(dest_dir)
 
+    def download_release(self, release: Release, dest_dir: pathlib.Path) -> None:
+        # Downloading a release asset requires setting the Accept header to
+        # application/octet-stream, or else you just get the JSON
+        # description of the asset back.
+        #
+        # https://docs.github.com/en/rest/releases/assets?apiVersion=2022-11-28
+        #
+        # However, setting Accept: application/octet-stream for build
+        # artifacts does not work! So we need a different Accept header in
+        # the two cases.
+        headers = {"Accept": "application/octet-stream"}
+        self.download_and_extract(release.asset["url"], dest_dir, headers=headers)
+
     def render_template(self, name: str, target: pathlib.Path, context: dict) -> None:
         template = self.jinja_env.get_template(name)
         with target.open("w") as f:
@@ -283,10 +309,29 @@ class AmalgamatePages:
             # while f is TextIOWrapper[_WrappedBuffer]
             stream.dump(f)  # type: ignore
 
+    def iter_branches(
+        self,
+        web_artifacts: dict[str, Fork],
+        pull_requests: dict[str, PullRequest],
+    ) -> Iterator[tuple[str, Branch, PullRequest | None]]:
+        for org in lead_sorted(web_artifacts.keys(), self.default_org):
+            fork = web_artifacts[org]
+            branch_names = fork.live_branches.keys()
+            for branch_name in lead_sorted(branch_names, self.default_branch):
+                branch = fork.live_branches[branch_name]
+                if not branch.build and org != self.default_org:
+                    logging.debug(
+                        "Ignoring never-built third-party branch %s:%s",
+                        org,
+                        branch_name,
+                    )
+                    continue
+
+                pull_request = pull_requests.get(f"{org}:{branch.name}")
+                yield org, branch, pull_request
+
     def run(self) -> None:
-        repo_details = self.get_default_repo_details()
-        default_org = repo_details["owner"]["login"]
-        default_branch = repo_details["default_branch"]
+        self.get_default_repo_details()
 
         latest_release = self.get_latest_built_release()
 
@@ -299,88 +344,51 @@ class AmalgamatePages:
         have_toplevel_build = False
 
         if latest_release is not None:
-            # Downloading a release asset requires setting the Accept header to
-            # application/octet-stream, or else you just get the JSON
-            # description of the asset back.
-            #
-            # https://docs.github.com/en/rest/releases/assets?apiVersion=2022-11-28
-            #
-            # However, setting Accept: application/octet-stream for build
-            # artifacts does not work! So we need a different Accept header in
-            # the two cases.
-            self.download_and_extract(
-                latest_release.asset["url"],
-                tmpdir,
-                headers={"Accept": "application/octet-stream"},
-            )
+            self.download_release(latest_release, tmpdir)
             have_toplevel_build = True
 
         items = []
         branches_dir = tmpdir / "branches"
         branches_dir.mkdir()
 
-        for org in lead_sorted(web_artifacts.keys(), default_org):
-            fork = web_artifacts[org]
-            for branch_name in lead_sorted(fork.live_branches.keys(), default_branch):
-                branch = fork.live_branches[branch_name]
-                if not branch.build and org != default_org:
-                    logging.debug(
-                        "Ignoring never-built third-party branch %s:%s",
-                        org,
-                        branch_name,
-                    )
-                    continue
+        for org, branch, pr in self.iter_branches(web_artifacts, pull_requests):
+            is_default = branch.name == self.default_branch and org == self.default_org
+            item: dict[str, Any] = {
+                "org": org,
+                "name": branch.name,
+                "is_default": is_default,
+                "pull_request": pr,
+                "build": branch.build,
+            }
 
-                item: dict[str, Any] = {}
-                item["name"] = (
-                    branch_name if org == default_org else f"{org}/{branch_name}"
+            if pr and pr["state"] == "closed":
+                logging.info(
+                    "Ignoring branch %s:%s; newest pull request %s is closed",
+                    org,
+                    branch.name,
+                    pr["url"],
                 )
-                item["is_default"] = (
-                    branch_name == default_branch and org == default_org
-                )
+                continue
 
-                try:
-                    pull_request = pull_requests[f"{org}:{branch_name}"][0]
-                except (KeyError, IndexError):
-                    pass
+            if branch.build and not branch.build.artifact["expired"]:
+                url = branch.build.artifact["archive_download_url"]
+                logging.info("Fetching %s:%s export from %s", org, branch.name, url)
+
+                if is_default and not have_toplevel_build:
+                    branch_dir = tmpdir
+                    have_toplevel_build = True
                 else:
-                    if pull_request["state"] == "closed":
-                        logging.info(
-                            "Ignoring branch %s; newest pull request %s is closed",
-                            item["name"],
-                            pull_request["url"],
-                        )
-                        continue
-                    item["pull_request"] = pull_request
+                    # TODO: Use colon form in directory name, avoiding
+                    # intermediate directory with no index?
+                    branch_dir = branches_dir / org / branch.name
+                    branch_dir.mkdir(parents=True)
 
-                if branch.build:
-                    item["build"] = branch.build
+                self.download_and_extract(url, branch_dir)
+                item["relative_path"] = branch_dir.relative_to(
+                    branches_dir, walk_up=True
+                )
 
-                    if not branch.build.artifact["expired"]:
-                        url = branch.build.artifact["archive_download_url"]
-                        logging.info(
-                            "Fetching %s:%s export from %s", org, branch_name, url
-                        )
-
-                        if (
-                            org == default_org
-                            and branch_name == default_branch
-                            and not have_toplevel_build
-                        ):
-                            branch_dir = tmpdir
-                            have_toplevel_build = True
-                        else:
-                            # TODO: Use colon form in directory name, avoiding
-                            # intermediate directory with no index?
-                            branch_dir = branches_dir / org / branch_name
-                            branch_dir.mkdir(parents=True)
-
-                        self.download_and_extract(url, branch_dir)
-                        item["relative_path"] = branch_dir.relative_to(
-                            branches_dir, walk_up=True
-                        )
-
-                items.append(item)
+            items.append(item)
 
         if not have_toplevel_build:
             self.render_template(
@@ -391,7 +399,7 @@ class AmalgamatePages:
             "branches.html",
             branches_dir / "index.html",
             {
-                "repo_details": repo_details,
+                "repo_details": self.repo_details,
                 "latest_release": latest_release,
                 "branches": items,
                 "generation_time": dt.datetime.now(tz=dt.timezone.utc),
