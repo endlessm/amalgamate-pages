@@ -40,7 +40,6 @@ runs:
       with:
         path: ${{ steps.assemble.outputs.path }}
 
-    # TODO: output the artifact name and have the calling workflow do this?
     - name: Deploy to GitHub Pages
       uses: actions/deploy-pages@v4
 
