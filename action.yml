@@ -27,7 +27,7 @@ runs:
       shell: bash
       working-directory: ${{ github.action_path }}
       run: |
-        uv run --frozen godoctopus.py
+        uv run --frozen godoctopus.py amalgamate
       env:
         DEBUG: ${{ runner.debug }}
         GITHUB_TOKEN: ${{ github.token }}
@@ -40,6 +40,14 @@ runs:
       with:
         path: ${{ steps.assemble.outputs.path }}
 
-    # TODO: output the artifact name and have the calling workflow do this?
     - name: Deploy to GitHub Pages
       uses: actions/deploy-pages@v4
+
+    - name: Update PR comments
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        uv run --frozen godoctopus.py comment
+      env:
+        DEBUG: ${{ runner.debug }}
+        GITHUB_TOKEN: ${{ github.token }}

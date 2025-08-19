@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
+import argparse
 import collections.abc
 import dataclasses
 import datetime as dt
+import json
 import logging
 import os
 import pathlib
@@ -16,6 +18,8 @@ import requests
 import requests_cache
 
 API = "https://api.github.com"
+COMMENT_FILE = pathlib.Path(__file__).parent / "pr-comments.json"
+COMMENT_TAG = "<!--amalgamate-pages-->"
 
 
 class ConfigurationError(Exception):
@@ -49,60 +53,25 @@ class Release:
     asset: dict
 
 
+PagesConfig = dict[str, Any]
 PullRequest = dict
 
 
-def lead_sorted(seq: collections.abc.KeysView[str], first: str) -> list[str]:
-    """Return a list with `first` at the front if present, followed by the rest sorted."""
-    if first in seq:
-        return [first] + sorted(seq - {first})
-    else:
-        return sorted(seq)
-
-
-def pretty_datetime(d: dt.datetime) -> str:
-    return d.strftime("%A %-d %B %Y, %-I:%M %p %Z")
-
-
-def make_session(api_token: str) -> requests_cache.CachedSession:
-    cache_backend = requests_cache.SQLiteCache()
-    session = requests_cache.CachedSession(
-        backend=cache_backend, cache_control=True, expire_after=60
-    )
-    session.headers.update(
-        {
-            "Authorization": f"Bearer {api_token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
-    )
-
-    return session
-
-
-class AmalgamatePages:
-    repo_details: dict[str, Any]
-
-    def __init__(
-        self,
-        session: requests.Session,
-        default_repo: str,
-        workflow_name: str,
-        artifact_name: str,
-    ):
-        self.session = session
-        self.default_repo = default_repo
-        self.workflow_name = workflow_name
-        self.artifact_name = artifact_name
-
-        self.jinja_env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
-            autoescape=jinja2.select_autoescape(),
+class GitHubApi:
+    def __init__(self, api_token: str):
+        cache_backend = requests_cache.SQLiteCache()
+        self.session = requests_cache.CachedSession(
+            backend=cache_backend, cache_control=True, expire_after=60
         )
-        self.jinja_env.filters["from_iso8601"] = dt.datetime.fromisoformat
-        self.jinja_env.filters["pretty_datetime"] = pretty_datetime
+        self.session.headers.update(
+            {
+                "Authorization": f"Bearer {api_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            }
+        )
 
-    def _paginate(
+    def paginate(
         self, url, params: dict | None = None, item_key: str | None = None
     ) -> Iterator[dict]:
         if not params:
@@ -122,8 +91,53 @@ class AmalgamatePages:
             url = response.links["next"]["url"]
             params = None
 
+
+def lead_sorted(seq: collections.abc.KeysView[str], first: str) -> list[str]:
+    """Return a list with `first` at the front if present, followed by the rest sorted."""
+    if first in seq:
+        return [first] + sorted(seq - {first})
+    else:
+        return sorted(seq)
+
+
+def pretty_datetime(d: dt.datetime) -> str:
+    return d.strftime("%A %-d %B %Y, %-I:%M %p %Z")
+
+
+def make_jinja2_env() -> jinja2.Environment:
+    jinja_env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
+        autoescape=jinja2.select_autoescape(
+            enabled_extensions=("html", "htm", "xml", "md")
+        ),
+    )
+    jinja_env.filters["from_iso8601"] = dt.datetime.fromisoformat
+    jinja_env.filters["pretty_datetime"] = pretty_datetime
+
+    return jinja_env
+
+
+class AmalgamatePages:
+    repo_details: dict[str, Any]
+
+    def __init__(
+        self,
+        api: GitHubApi,
+        default_repo: str,
+        pages_config: PagesConfig,
+        workflow_name: str,
+        artifact_name: str,
+    ):
+        self.api = api
+        self.default_repo = default_repo
+        self.pages_config = pages_config
+        self.workflow_name = workflow_name
+        self.artifact_name = artifact_name
+
+        self.jinja_env = make_jinja2_env()
+
     def get_default_repo_details(self) -> None:
-        response = self.session.get(f"{API}/repos/{self.default_repo}")
+        response = self.api.session.get(f"{API}/repos/{self.default_repo}")
         response.raise_for_status()
         self.repo_details = response.json()
 
@@ -135,8 +149,12 @@ class AmalgamatePages:
     def default_branch(self) -> str:
         return self.repo_details["default_branch"]
 
+    @property
+    def base_url(self) -> str:
+        return self.pages_config["html_url"]
+
     def find_workflow(self) -> dict[str, Any]:
-        for workflow in self._paginate(
+        for workflow in self.api.paginate(
             f"{API}/repos/{self.default_repo}/actions/workflows",
             item_key="workflows",
         ):
@@ -150,11 +168,7 @@ class AmalgamatePages:
 
     def list_branches(self, repo: str) -> list[dict]:
         try:
-            return list(
-                self._paginate(
-                    f"{API}/repos/{repo}/branches",
-                )
-            )
+            return list(self.api.paginate(f"{API}/repos/{repo}/branches"))
         except requests.HTTPError as error:
             if error.response.status_code != 404:
                 raise
@@ -173,7 +187,7 @@ class AmalgamatePages:
         """
         branch_prs: dict[str, list[PullRequest]] = {}
 
-        for pr in self._paginate(
+        for pr in self.api.paginate(
             f"{API}/repos/{self.default_repo}/pulls",
             params={"state": "all"},
         ):
@@ -185,14 +199,14 @@ class AmalgamatePages:
         }
 
     def find_artifact(self, artifacts_url: str) -> dict[str, Any] | None:
-        for artifact in self._paginate(artifacts_url, item_key="artifacts"):
+        for artifact in self.api.paginate(artifacts_url, item_key="artifacts"):
             if artifact["name"] == self.artifact_name:
                 return artifact
         return None
 
     def find_latest_artifacts(self, workflow_id: int) -> dict[str, Fork]:
         artifacts: dict[str, Fork] = {}
-        for run in self._paginate(
+        for run in self.api.paginate(
             f"{API}/repos/{self.default_repo}/actions/workflows/{workflow_id}/runs",
             params={"status": "success"},
             item_key="workflow_runs",
@@ -258,7 +272,7 @@ class AmalgamatePages:
         # https://docs.github.com/en/rest/releases/releases?apiVersion=2022-11-28#get-the-latest-release
         # does not allow you to fetch the latest prerelease, and currently all
         # releases in Threadbare are prereleases.
-        for release in self._paginate(f"{API}/repos/{self.default_repo}/releases"):
+        for release in self.api.paginate(f"{API}/repos/{self.default_repo}/releases"):
             if release["draft"]:
                 continue
 
@@ -282,7 +296,7 @@ class AmalgamatePages:
     def download_and_extract(
         self, url: str, dest_dir: pathlib.Path, headers: dict[str, str] | None = None
     ) -> None:
-        with self.session.get(url, headers=headers, stream=True) as response:
+        with self.api.session.get(url, headers=headers, stream=True) as response:
             response.raise_for_status()
             with tempfile.TemporaryFile() as f:
                 shutil.copyfileobj(response.raw, f)
@@ -339,16 +353,20 @@ class AmalgamatePages:
         web_artifacts = self.find_latest_artifacts(workflow["id"])
         pull_requests = self.list_pull_requests()
 
-        tmpdir = pathlib.Path(tempfile.mkdtemp(prefix="godoctopus-"))
-        logging.info("Assembling site at %s", tmpdir)
+        dest_dir = pathlib.Path(__file__).parent / "_build"
+        shutil.rmtree(dest_dir, ignore_errors=True)
+        dest_dir.mkdir(parents=True)
+
+        logging.info("Assembling site at %s", dest_dir)
         have_toplevel_build = False
 
         if latest_release is not None:
-            self.download_release(latest_release, tmpdir)
+            self.download_release(latest_release, dest_dir)
             have_toplevel_build = True
 
+        pr_comments = []
         items = []
-        branches_dir = tmpdir / "branches"
+        branches_dir = dest_dir / "branches"
         branches_dir.mkdir()
 
         for org, branch, pr in self.iter_branches(web_artifacts, pull_requests):
@@ -368,6 +386,7 @@ class AmalgamatePages:
                     branch.name,
                     pr["url"],
                 )
+                pr_comments.append([pr["comments_url"], None])
                 continue
 
             if branch.build and not branch.build.artifact["expired"]:
@@ -375,7 +394,7 @@ class AmalgamatePages:
                 logging.info("Fetching %s:%s export from %s", org, branch.name, url)
 
                 if is_default and not have_toplevel_build:
-                    branch_dir = tmpdir
+                    branch_dir = dest_dir
                     have_toplevel_build = True
                 else:
                     # TODO: Use colon form in directory name, avoiding
@@ -388,11 +407,15 @@ class AmalgamatePages:
                     branches_dir, walk_up=True
                 )
 
+                if pr:
+                    build_url = self.base_url + str(branch_dir.relative_to(dest_dir))
+                    pr_comments.append([pr["comments_url"], build_url])
+
             items.append(item)
 
         if not have_toplevel_build:
             self.render_template(
-                "redirect.html", tmpdir / "index.html", {"target": "branches/"}
+                "redirect.html", dest_dir / "index.html", {"target": "branches/"}
             )
 
         self.render_template(
@@ -410,12 +433,15 @@ class AmalgamatePages:
         github_output = os.environ.get("GITHUB_OUTPUT")
         if github_output:
             with open(github_output, "a") as f:
-                f.write(f"path={tmpdir}\n")
+                f.write(f"path={dest_dir}\n")
 
-        logging.info("Site assembled at %s", tmpdir)
+        logging.info("Site assembled at %s", dest_dir)
+
+        with COMMENT_FILE.open("w") as f:
+            json.dump(pr_comments, f)
 
 
-def check_pages_configuration(session: requests.Session, repo: str) -> None:
+def get_pages_config(session: requests.Session, repo: str) -> PagesConfig:
     logging.debug("Checking GitHub Pages configuration")
 
     get_response = session.get(f"{API}/repos/{repo}/pages")
@@ -428,7 +454,7 @@ def check_pages_configuration(session: requests.Session, repo: str) -> None:
                 logging.debug(
                     "GitHub Pages is configured correctly for this repository"
                 )
-                return
+                return data
         case _:
             get_response.raise_for_status()
 
@@ -451,27 +477,76 @@ def setup_logging() -> None:
     logging.basicConfig(level=level, format=log_format, datefmt=date_format)
 
 
-def main() -> None:
-    api_token = os.environ["GITHUB_TOKEN"]
+def amalgamate(
+    api: GitHubApi,
+    args: argparse.Namespace,
+) -> None:
     repo = os.environ["GITHUB_REPOSITORY"]
     workflow_name = os.environ["WORKFLOW_NAME"]
     artifact_name = os.environ["ARTIFACT_NAME"]
+    pages_config = get_pages_config(api.session, repo)
+
+    amalgamate_pages = AmalgamatePages(
+        api, repo, pages_config, workflow_name, artifact_name
+    )
+    amalgamate_pages.run()
+
+
+def comment(
+    api: GitHubApi,
+    args: argparse.Namespace,
+) -> None:
+    with (pathlib.Path(__file__).parent / "pr-comments.json").open("r") as f:
+        pr_comments = json.load(f)
+
+    template = make_jinja2_env().get_template("comment.md")
+
+    for comments_url, build_url in pr_comments:
+        comment: dict | None
+
+        for comment in api.paginate(comments_url):
+            if comment["body"].startswith(COMMENT_TAG):
+                break
+        else:
+            comment = None
+
+        body = "\n\n".join((COMMENT_TAG, template.render(url=build_url)))
+        if comment:
+            if body != comment["body"]:
+                logging.info("Updating comment %s", comment["url"])
+                response = api.session.patch(comment["url"], json={"body": body})
+                response.raise_for_status()
+        elif build_url is not None:
+            logging.info("Posting new comment to %s", comments_url)
+            response = api.session.post(comments_url, json={"body": body})
+            response.raise_for_status()
+
+
+def main() -> None:
+    api_token = os.environ["GITHUB_TOKEN"]
 
     setup_logging()
 
-    session = make_session(api_token)
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(title="subcommand", required=True)
+
+    parser_amalgamate = subparsers.add_parser("amalgamate")
+    parser_amalgamate.set_defaults(func=amalgamate)
+
+    parser_amalgamate = subparsers.add_parser("comment")
+    parser_amalgamate.set_defaults(func=comment)
+
+    args = parser.parse_args()
+    api = GitHubApi(api_token)
 
     try:
-        check_pages_configuration(session, repo)
-
-        amalgamate_pages = AmalgamatePages(session, repo, workflow_name, artifact_name)
-        amalgamate_pages.run()
+        args.func(api, args)
     except ConfigurationError as e:
         for message in e.args:
             print(f"::error::{message}")
         raise
 
-    session.cache.delete(older_than=dt.timedelta(days=7))
+    api.session.cache.delete(older_than=dt.timedelta(days=7))
 
 
 if __name__ == "__main__":

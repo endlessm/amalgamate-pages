@@ -90,6 +90,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  pull-requests: write
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: true
@@ -97,7 +98,7 @@ publish:
     name: Publish all branches to GitHub Pages
     runs-on: ubuntu-latest
     steps:
-      - uses: endlessm/amalgamate-pages@v1
+      - uses: endlessm/amalgamate-pages@v2
         with:
           # These must match the workflow and artifact names from your build workflow
           workflow_name: "Export Web Build"
