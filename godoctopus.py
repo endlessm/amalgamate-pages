@@ -59,7 +59,10 @@ PullRequest = dict
 
 class GitHubApi:
     def __init__(self, api_token: str):
-        cache_backend = requests_cache.SQLiteCache()
+        cache_backend = requests_cache.SQLiteCache(
+            use_cache_dir=True, db_path="godoctopus-cache"
+        )
+        logging.info("Caching responses to %s", cache_backend.db_path)
         self.session = requests_cache.CachedSession(
             backend=cache_backend, cache_control=True, expire_after=60
         )
