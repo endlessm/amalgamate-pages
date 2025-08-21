@@ -59,13 +59,19 @@ PullRequest = dict
 
 class GitHubApi:
     def __init__(self, api_token: str):
-        cache_backend = requests_cache.SQLiteCache(
-            use_cache_dir=True, db_path="godoctopus-cache"
-        )
-        logging.info("Caching responses to %s", cache_backend.db_path)
-        self.session = requests_cache.CachedSession(
-            backend=cache_backend, cache_control=True, expire_after=60
-        )
+        if os.environ.get("CI") == "true":
+            logging.info("Running in CI; not caching responses")
+            self._cache_backend = None
+            self.session = requests.Session()
+        else:
+            self._cache_backend = requests_cache.SQLiteCache(
+                use_cache_dir=True, db_path="godoctopus-cache"
+            )
+            logging.info("Caching responses to %s", self._cache_backend.db_path)
+            self.session = requests_cache.CachedSession(
+                backend=self._cache_backend, cache_control=True, expire_after=60
+            )
+
         self.session.headers.update(
             {
                 "Authorization": f"Bearer {api_token}",
@@ -73,6 +79,14 @@ class GitHubApi:
                 "X-GitHub-Api-Version": "2022-11-28",
             }
         )
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.session.close()
+        if self._cache_backend:
+            self._cache_backend.delete(older_than=dt.timedelta(days=7))
 
     def paginate(
         self, url, params: dict | None = None, item_key: str | None = None
@@ -540,16 +554,13 @@ def main() -> None:
     parser_amalgamate.set_defaults(func=comment)
 
     args = parser.parse_args()
-    api = GitHubApi(api_token)
-
-    try:
-        args.func(api, args)
-    except ConfigurationError as e:
-        for message in e.args:
-            print(f"::error::{message}")
-        raise
-
-    api.session.cache.delete(older_than=dt.timedelta(days=7))
+    with GitHubApi(api_token) as api:
+        try:
+            args.func(api, args)
+        except ConfigurationError as e:
+            for message in e.args:
+                print(f"::error::{message}")
+            raise
 
 
 if __name__ == "__main__":
