@@ -43,11 +43,11 @@ runs:
     - name: Deploy to GitHub Pages
       uses: actions/deploy-pages@v4
 
-    - name: Update PR comments
+    - name: Update build statuses
       shell: bash
       working-directory: ${{ github.action_path }}
       run: |
-        uv run --frozen godoctopus.py comment
+        uv run --frozen godoctopus.py update-status
       env:
         DEBUG: ${{ runner.debug }}
         GITHUB_TOKEN: ${{ github.token }}
