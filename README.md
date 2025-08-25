@@ -134,3 +134,9 @@ point its build artifact will expire and will not be included in the amalgamated
 site. Instead, the branches index will show the date on which it expired.
 Manually triggering the build workflow on that branch, or pushing a new commit
 to trigger a build, will restore it.
+
+Our primary use-case for this tool is for web builds of Godot game projects. In
+principle, it is generic enough to work for any project, and patches are welcome
+to improve this so long as they do not undermine our primary use! One current
+assumption is that we can place arbitrary files into a `branches` directory at
+the root of the website without interfering with the default web build.
