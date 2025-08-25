@@ -18,8 +18,10 @@ import requests
 import requests_cache
 
 API = "https://api.github.com"
-COMMENT_FILE = pathlib.Path(__file__).parent / "pr-comments.json"
-COMMENT_TAG = "<!--amalgamate-pages-->"
+
+BUILD_URLS_FILE = pathlib.Path(__file__).parent / "build-urls.json"
+STATUS_CONTEXT = "Publish Web Build"
+STATUS_SUCCESS_DESCRIPTION = "Test this branch"
 
 
 class ConfigurationError(Exception):
@@ -381,7 +383,7 @@ class AmalgamatePages:
             self.download_release(latest_release, dest_dir)
             have_toplevel_build = True
 
-        pr_comments = []
+        build_urls = []
         items = []
         branches_dir = dest_dir / "branches"
         branches_dir.mkdir()
@@ -403,7 +405,6 @@ class AmalgamatePages:
                     branch.name,
                     pr["url"],
                 )
-                pr_comments.append([pr["comments_url"], None])
                 continue
 
             if branch.build and not branch.build.artifact["expired"]:
@@ -424,9 +425,8 @@ class AmalgamatePages:
                     branches_dir, walk_up=True
                 )
 
-                if pr:
-                    build_url = self.base_url + str(branch_dir.relative_to(dest_dir))
-                    pr_comments.append([pr["comments_url"], build_url])
+                build_url = self.base_url + str(branch_dir.relative_to(dest_dir))
+                build_urls.append([branch.build.workflow_run["head_sha"], build_url])
 
             items.append(item)
 
@@ -454,8 +454,8 @@ class AmalgamatePages:
 
         logging.info("Site assembled at %s", dest_dir)
 
-        with COMMENT_FILE.open("w") as f:
-            json.dump(pr_comments, f)
+        with BUILD_URLS_FILE.open("w") as f:
+            json.dump(build_urls, f)
 
 
 def get_pages_config(session: requests.Session, repo: str) -> PagesConfig:
@@ -496,9 +496,9 @@ def setup_logging() -> None:
 
 def amalgamate(
     api: GitHubApi,
+    repo: str,
     args: argparse.Namespace,
 ) -> None:
-    repo = os.environ["GITHUB_REPOSITORY"]
     workflow_name = os.environ["WORKFLOW_NAME"]
     artifact_name = os.environ["ARTIFACT_NAME"]
     pages_config = get_pages_config(api.session, repo)
@@ -509,38 +509,31 @@ def amalgamate(
     amalgamate_pages.run()
 
 
-def comment(
+def update_status(
     api: GitHubApi,
+    repo: str,
     args: argparse.Namespace,
 ) -> None:
-    with (pathlib.Path(__file__).parent / "pr-comments.json").open("r") as f:
-        pr_comments = json.load(f)
+    with BUILD_URLS_FILE.open("r") as f:
+        build_urls = json.load(f)
 
-    template = make_jinja2_env().get_template("comment.md")
-
-    for comments_url, build_url in pr_comments:
-        comment: dict | None
-
-        for comment in api.paginate(comments_url):
-            if comment["body"].startswith(COMMENT_TAG):
-                break
-        else:
-            comment = None
-
-        body = "\n\n".join((COMMENT_TAG, template.render(url=build_url)))
-        if comment:
-            if body != comment["body"]:
-                logging.info("Updating comment %s", comment["url"])
-                response = api.session.patch(comment["url"], json={"body": body})
-                response.raise_for_status()
-        elif build_url is not None:
-            logging.info("Posting new comment to %s", comments_url)
-            response = api.session.post(comments_url, json={"body": body})
-            response.raise_for_status()
+    for head_sha, build_url in build_urls:
+        status = {
+            "state": "success",
+            "description": STATUS_SUCCESS_DESCRIPTION,
+            "context": STATUS_CONTEXT,
+            "target_url": build_url,
+        }
+        response = api.session.post(
+            f"{API}/repos/{repo}/statuses/{head_sha}",
+            json=status,
+        )
+        response.raise_for_status()
 
 
 def main() -> None:
     api_token = os.environ["GITHUB_TOKEN"]
+    repo = os.environ["GITHUB_REPOSITORY"]
 
     setup_logging()
 
@@ -550,13 +543,13 @@ def main() -> None:
     parser_amalgamate = subparsers.add_parser("amalgamate")
     parser_amalgamate.set_defaults(func=amalgamate)
 
-    parser_amalgamate = subparsers.add_parser("comment")
-    parser_amalgamate.set_defaults(func=comment)
+    parser_amalgamate = subparsers.add_parser("update-status")
+    parser_amalgamate.set_defaults(func=update_status)
 
     args = parser.parse_args()
     with GitHubApi(api_token) as api:
         try:
-            args.func(api, args)
+            args.func(api, repo, args)
         except ConfigurationError as e:
             for message in e.args:
                 print(f"::error::{message}")
