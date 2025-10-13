@@ -11,19 +11,46 @@ import pathlib
 import shutil
 import tempfile
 import zipfile
-from typing import Any, Iterator
+from typing import Any, Iterator, Self
 
 import jinja2
 import requests
 import requests_cache
 
 API = "https://api.github.com"
-COMMENT_FILE = pathlib.Path(__file__).parent / "pr-comments.json"
+
+STATUSES_FILE = pathlib.Path(__file__).parent / "statuses.json"
 COMMENT_TAG = "<!--amalgamate-pages-->"
+STATUS_CONTEXT = "Publish Web Build"
+STATUS_SUCCESS_DESCRIPTION = "Test this branch"
 
 
 class ConfigurationError(Exception):
     pass
+
+
+@dataclasses.dataclass
+class StatusData:
+    """Data to pass from the amalgamate stage (run before the GitHub Pages site
+    is updated) to the update-status stage (run after the GitHub Pages site is
+    updated)"""
+
+    # URL for playable build
+    build_url: str | None
+    # Commit shasum
+    head_sha: str | None
+    # Comments URL for corresponding pull request
+    comments_url: str | None
+
+    @classmethod
+    def dump(cls, items: list[Self]) -> None:
+        with STATUSES_FILE.open("w") as fp:
+            json.dump(list(map(dataclasses.asdict, items)), fp)
+
+    @classmethod
+    def load(cls) -> list[Self]:
+        with STATUSES_FILE.open("r") as fp:
+            return [cls(**item) for item in json.load(fp)]
 
 
 @dataclasses.dataclass
@@ -381,7 +408,7 @@ class AmalgamatePages:
             self.download_release(latest_release, dest_dir)
             have_toplevel_build = True
 
-        pr_comments = []
+        statuses: list[StatusData] = []
         items = []
         branches_dir = dest_dir / "branches"
         branches_dir.mkdir()
@@ -395,16 +422,19 @@ class AmalgamatePages:
                 "pull_request": pr,
                 "build": branch.build,
             }
+            status = StatusData(None, None, None)
 
-            if pr and pr["state"] == "closed":
-                logging.info(
-                    "Ignoring branch %s:%s; newest pull request %s is closed",
-                    org,
-                    branch.name,
-                    pr["url"],
-                )
-                pr_comments.append([pr["comments_url"], None])
-                continue
+            if pr:
+                status.comments_url = pr["comments_url"]
+                if pr["state"] == "closed":
+                    logging.info(
+                        "Ignoring branch %s:%s; newest pull request %s is closed",
+                        org,
+                        branch.name,
+                        pr["url"],
+                    )
+                    statuses.append(status)
+                    continue
 
             if branch.build and not branch.build.artifact["expired"]:
                 url = branch.build.artifact["archive_download_url"]
@@ -424,9 +454,10 @@ class AmalgamatePages:
                     branches_dir, walk_up=True
                 )
 
-                if pr:
-                    build_url = self.base_url + str(branch_dir.relative_to(dest_dir))
-                    pr_comments.append([pr["comments_url"], build_url])
+                build_url = self.base_url + str(branch_dir.relative_to(dest_dir))
+                status.build_url = build_url
+                status.head_sha = branch.build.workflow_run["head_sha"]
+                statuses.append(status)
 
             items.append(item)
 
@@ -453,9 +484,7 @@ class AmalgamatePages:
                 f.write(f"path={dest_dir}\n")
 
         logging.info("Site assembled at %s", dest_dir)
-
-        with COMMENT_FILE.open("w") as f:
-            json.dump(pr_comments, f)
+        StatusData.dump(statuses)
 
 
 def get_pages_config(session: requests.Session, repo: str) -> PagesConfig:
@@ -496,9 +525,9 @@ def setup_logging() -> None:
 
 def amalgamate(
     api: GitHubApi,
+    repo: str,
     args: argparse.Namespace,
 ) -> None:
-    repo = os.environ["GITHUB_REPOSITORY"]
     workflow_name = os.environ["WORKFLOW_NAME"]
     artifact_name = os.environ["ARTIFACT_NAME"]
     pages_config = get_pages_config(api.session, repo)
@@ -509,38 +538,87 @@ def amalgamate(
     amalgamate_pages.run()
 
 
-def comment(
+def update_comment(
     api: GitHubApi,
+    template: jinja2.Template,
+    comments_url: str,
+    build_url: str | None,
+) -> bool:
+    comment: dict | None
+
+    for comment in api.paginate(comments_url):
+        if comment["body"].startswith(COMMENT_TAG):
+            break
+    else:
+        comment = None
+
+    body = "\n\n".join((COMMENT_TAG, template.render(url=build_url)))
+    response = None
+    if comment:
+        if body != comment["body"]:
+            logging.info("Updating comment %s", comment["url"])
+            response = api.session.patch(comment["url"], json={"body": body})
+    elif build_url is not None:
+        logging.info("Posting new comment to %s", comments_url)
+        response = api.session.post(comments_url, json={"body": body})
+
+    if response:
+        if response.status_code == 403:
+            logging.warning(
+                "No permission to comment on pull requests; "
+                + "add comments: write to permissions: in your workflow"
+            )
+            return False
+        response.raise_for_status()
+
+    return True
+
+
+def set_status(
+    api: GitHubApi,
+    repo: str,
+    head_sha: str,
+    build_url: str,
+) -> bool:
+    status: dict[str, str] = {
+        "state": "success",
+        "description": STATUS_SUCCESS_DESCRIPTION,
+        "context": STATUS_CONTEXT,
+        "target_url": build_url,
+    }
+    response = api.session.post(f"{API}/repos/{repo}/statuses/{head_sha}", json=status)
+    if response.status_code == 403:
+        logging.warning(
+            "No permission to set commit status; "
+            + "add statuses: write to permissions: in your workflow"
+        )
+        return False
+    response.raise_for_status()
+    return True
+
+
+def update_status(
+    api: GitHubApi,
+    repo: str,
     args: argparse.Namespace,
 ) -> None:
-    with (pathlib.Path(__file__).parent / "pr-comments.json").open("r") as f:
-        pr_comments = json.load(f)
-
     template = make_jinja2_env().get_template("comment.md")
+    can_comment = True
+    can_set_status = True
 
-    for comments_url, build_url in pr_comments:
-        comment: dict | None
+    for data in StatusData.load():
+        if data.comments_url and can_comment:
+            can_comment = update_comment(
+                api, template, data.comments_url, data.build_url
+            )
 
-        for comment in api.paginate(comments_url):
-            if comment["body"].startswith(COMMENT_TAG):
-                break
-        else:
-            comment = None
-
-        body = "\n\n".join((COMMENT_TAG, template.render(url=build_url)))
-        if comment:
-            if body != comment["body"]:
-                logging.info("Updating comment %s", comment["url"])
-                response = api.session.patch(comment["url"], json={"body": body})
-                response.raise_for_status()
-        elif build_url is not None:
-            logging.info("Posting new comment to %s", comments_url)
-            response = api.session.post(comments_url, json={"body": body})
-            response.raise_for_status()
+        if can_set_status and data.head_sha and data.build_url:
+            can_set_status = set_status(api, repo, data.head_sha, data.build_url)
 
 
 def main() -> None:
     api_token = os.environ["GITHUB_TOKEN"]
+    repo = os.environ["GITHUB_REPOSITORY"]
 
     setup_logging()
 
@@ -550,13 +628,13 @@ def main() -> None:
     parser_amalgamate = subparsers.add_parser("amalgamate")
     parser_amalgamate.set_defaults(func=amalgamate)
 
-    parser_amalgamate = subparsers.add_parser("comment")
-    parser_amalgamate.set_defaults(func=comment)
+    parser_amalgamate = subparsers.add_parser("update-status")
+    parser_amalgamate.set_defaults(func=update_status)
 
     args = parser.parse_args()
     with GitHubApi(api_token) as api:
         try:
-            args.func(api, args)
+            args.func(api, repo, args)
         except ConfigurationError as e:
             for message in e.args:
                 print(f"::error::{message}")

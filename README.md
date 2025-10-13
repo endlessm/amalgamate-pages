@@ -90,7 +90,10 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  # Enable commenting on PRs with a link
   pull-requests: write
+  # Enable setting commit build status with a link
+  statuses: write
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: true
