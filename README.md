@@ -21,8 +21,8 @@ It is used in game-making programs, where (among other things) participants can
 gain experience with contributing to a community project via Git and GitHub.
 
 You can play the latest pre-release of the game at
-<https://endlessm.github.io/threadbare/>, and preview work-in-progress branches
-at <https://endlessm.github.io/threadbare/branches/>.
+<https://play.threadbare.game/>, and preview work-in-progress branches
+at <https://play.threadbare.game/branches/>. This site is hosted on GitHub Pages.
 
 ## Usage
 
