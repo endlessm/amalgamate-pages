@@ -419,12 +419,13 @@ class AmalgamatePages:
                 "org": org,
                 "name": branch.name,
                 "is_default": is_default,
-                "pull_request": pr,
+                "pull_request": None,
                 "build": branch.build,
             }
             status = StatusData(None, None, None)
 
-            if pr:
+            if pr and not is_default:
+                item["pull_request"] = pr
                 status.comments_url = pr["comments_url"]
                 if pr["state"] == "closed":
                     logging.info(
