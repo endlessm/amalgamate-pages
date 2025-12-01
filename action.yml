@@ -34,6 +34,7 @@ runs:
         GITHUB_REPOSITORY: ${{ github.repository }}
         WORKFLOW_NAME: ${{ inputs.workflow_name }}
         ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
     - name: Upload pages artifact
       uses: actions/upload-pages-artifact@v4
