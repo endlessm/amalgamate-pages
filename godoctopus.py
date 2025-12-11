@@ -338,15 +338,25 @@ class AmalgamatePages:
         return None
 
     def download_and_extract(
-        self, url: str, dest_dir: pathlib.Path, headers: dict[str, str] | None = None
-    ) -> None:
-        with self.api.session.get(url, headers=headers, stream=True) as response:
-            response.raise_for_status()
-            with tempfile.TemporaryFile() as f:
+        self,
+        url: str,
+        dest_dir: pathlib.Path,
+        headers: dict[str, str] | None = None,
+    ) -> int:
+        size: int = 0
+        with tempfile.TemporaryFile() as f:
+            with self.api.session.get(url, headers=headers, stream=True) as response:
+                response.raise_for_status()
                 shutil.copyfileobj(response.raw, f)
-                zipfile.ZipFile(f).extractall(dest_dir)
 
-    def download_release(self, release: Release, dest_dir: pathlib.Path) -> None:
+            with zipfile.ZipFile(f) as zip_file:
+                for member in zip_file.infolist():
+                    size += member.file_size
+                    zip_file.extract(member, dest_dir)
+
+        return size
+
+    def download_release(self, release: Release, dest_dir: pathlib.Path) -> int:
         # Downloading a release asset requires setting the Accept header to
         # application/octet-stream, or else you just get the JSON
         # description of the asset back.
@@ -356,8 +366,9 @@ class AmalgamatePages:
         # However, setting Accept: application/octet-stream for build
         # artifacts does not work! So we need a different Accept header in
         # the two cases.
+        url = release.asset["url"]
         headers = {"Accept": "application/octet-stream"}
-        self.download_and_extract(release.asset["url"], dest_dir, headers=headers)
+        return self.download_and_extract(url, dest_dir, headers=headers)
 
     def render_template(self, name: str, target: pathlib.Path, context: dict) -> None:
         template = self.jinja_env.get_template(name)
@@ -392,6 +403,7 @@ class AmalgamatePages:
         self.get_default_repo_details()
 
         latest_release = self.get_latest_built_release()
+        latest_release_size: int | None = None
 
         workflow = self.find_workflow()
         web_artifacts = self.find_latest_artifacts(workflow["id"])
@@ -405,7 +417,7 @@ class AmalgamatePages:
         have_toplevel_build = False
 
         if latest_release is not None:
-            self.download_release(latest_release, dest_dir)
+            latest_release_size = self.download_release(latest_release, dest_dir)
             have_toplevel_build = True
 
         statuses: list[StatusData] = []
@@ -450,7 +462,7 @@ class AmalgamatePages:
                     branch_dir = branches_dir / org / branch.name
                     branch_dir.mkdir(parents=True)
 
-                self.download_and_extract(url, branch_dir)
+                item["size"] = self.download_and_extract(url, branch_dir)
                 item["relative_path"] = branch_dir.relative_to(
                     branches_dir, walk_up=True
                 )
@@ -473,6 +485,7 @@ class AmalgamatePages:
             {
                 "repo_details": self.repo_details,
                 "latest_release": latest_release,
+                "latest_release_size": latest_release_size,
                 "branches": items,
                 "generation_time": dt.datetime.now(tz=dt.timezone.utc),
                 "workflow_run_url": os.environ.get("WORKFLOW_RUN_URL"),
