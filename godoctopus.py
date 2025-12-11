@@ -475,6 +475,7 @@ class AmalgamatePages:
                 "latest_release": latest_release,
                 "branches": items,
                 "generation_time": dt.datetime.now(tz=dt.timezone.utc),
+                "workflow_run_url": os.environ.get("WORKFLOW_RUN_URL"),
             },
         )
         shutil.copy("branches.css", branches_dir / "branches.css")

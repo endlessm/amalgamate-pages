@@ -84,9 +84,15 @@
 </main>
 <footer>
     Created with <a href="https://github.com/endlessm/amalgamate-pages">Amalgamate Pages</a> at
-    <time datetime="{{ generation_time.isoformat() }}">{{
-        generation_time | pretty_datetime
-    }}</time>.
+    {% if workflow_run_url %}
+    <a href="{{ workflow_run_url }}">
+    {%- endif -%}
+        <time datetime="{{ generation_time.isoformat() }}">{{
+            generation_time | pretty_datetime
+        }}</time>
+    {%- if workflow_run_url -%}
+    </a>
+    {%- endif %}.
 </footer>
 </body>
 </html>
