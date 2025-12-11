@@ -344,14 +344,15 @@ class AmalgamatePages:
         headers: dict[str, str] | None = None,
     ) -> int:
         size: int = 0
-        with self.api.session.get(url, headers=headers, stream=True) as response:
-            response.raise_for_status()
-            with tempfile.TemporaryFile() as f:
+        with tempfile.TemporaryFile() as f:
+            with self.api.session.get(url, headers=headers, stream=True) as response:
+                response.raise_for_status()
                 shutil.copyfileobj(response.raw, f)
-                with zipfile.ZipFile(f) as zip_file:
-                    for member in zip_file.infolist():
-                        size += member.file_size
-                        zip_file.extract(member, dest_dir)
+
+            with zipfile.ZipFile(f) as zip_file:
+                for member in zip_file.infolist():
+                    size += member.file_size
+                    zip_file.extract(member, dest_dir)
 
         return size
 
