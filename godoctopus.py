@@ -595,13 +595,27 @@ def set_status(
     head_sha: str,
     build_url: str,
 ) -> bool:
-    status: dict[str, str] = {
+    new_status: dict[str, str] = {
         "state": "success",
         "description": STATUS_SUCCESS_DESCRIPTION,
         "context": STATUS_CONTEXT,
         "target_url": build_url,
     }
-    response = api.session.post(f"{API}/repos/{repo}/statuses/{head_sha}", json=status)
+
+    for status in api.paginate(
+        f"{API}/repos/{repo}/commits/{head_sha}/status",
+        item_key="statuses",
+    ):
+        if status["context"] == STATUS_CONTEXT:
+            if all(status[k] == new_status[k] for k in new_status):
+                return True
+            # Otherwise, needs update
+            break
+    # If no existing status with the same context exists, we need to create one.
+
+    response = api.session.post(
+        f"{API}/repos/{repo}/statuses/{head_sha}", json=new_status
+    )
     if response.status_code == 403:
         logging.warning(
             "No permission to set commit status; "
