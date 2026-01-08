@@ -521,7 +521,7 @@ def get_pages_config(session: requests.Session, repo: str) -> PagesConfig:
 
     raise ConfigurationError(
         "GitHub Pages must be enabled, with the source set to GitHub Actions, in the repository settings.",
-        f"Go to https://github.com/{ repo }/settings/pages to fix this.",
+        f"Go to https://github.com/{repo}/settings/pages to fix this.",
     )
 
 
