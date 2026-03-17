@@ -13,14 +13,9 @@ This tool is developed on Linux. Your mileage may vary on other platforms.
 This tool is developed using [uv](https://github.com/astral-sh/uv), a Python
 project manager. Install this if you haven't already.
 
-You need a GitHub API key to run the tool. An easy way to get one is to use the
-[`gh` CLI tool](https://cli.github.com/). The instructions below assume you have
-installed and configured `gh`.
-
-Now, test the amalgamation process like this:
+Test the amalgamation process like this:
 
 ```bash
-GITHUB_TOKEN=$(gh auth token) \
 GITHUB_REPOSITORY=endlessm/amalgamate-pages-test \
 WORKFLOW_NAME="Build and Export Game" \
 ARTIFACT_NAME="web" \
@@ -28,6 +23,11 @@ uv run godoctopus.py amalgamate
 ```
 
 Adjust `GITHUB_REPOSITORY`, `WORKFLOW_NAME` and `ARTIFACT_NAME` to taste.
+
+> [!TIP]
+> If you have the [`gh` CLI tool](https://cli.github.com/) installed and
+> configured, a GitHub API token will be fetched from it automatically. Otherwise,
+> you must set the `GITHUB_TOKEN` environment variable.
 
 The output will be in the `_build` directory. Serve this using a local web server:
 
