@@ -8,9 +8,12 @@ import json
 import logging
 import os
 import pathlib
+import re
 import shutil
+import subprocess
 import tempfile
 import zipfile
+from hashlib import sha256
 from typing import Any, Iterator, Self
 
 import jinja2
@@ -399,6 +402,78 @@ class AmalgamatePages:
                 pull_request = pull_requests.get(f"{org}:{branch.name}")
                 yield org, branch, pull_request
 
+    def deduplicate_godot_artifacts(self, dest_dir: pathlib.Path) -> int:
+        """Assuming each branch is a Godot web build named
+        index.{html,pck,wasm}, deduplicates index.wasm where possible. Gnarly
+        but functional."""
+        wasms = {}
+        deduplicated_bytes = 0
+
+        for dirpath, _dirnames, filenames in dest_dir.walk():
+            if "index.wasm" not in filenames:
+                continue
+
+            path = dirpath / "index.wasm"
+            sha256_hash = sha256(path.read_bytes()).hexdigest()
+
+            try:
+                target = wasms[sha256_hash]
+            except KeyError:
+                logging.debug("%s has new hash %s", path, sha256_hash)
+                wasms[sha256_hash] = path
+                continue
+
+            logging.debug(
+                "%s has duplicate hash %s, target is %s", path, sha256_hash, target
+            )
+
+            # Typically the target will be at the root of the site, but it could
+            # be a sibling, e.g. latest release is Godot 4.6, but main and 1 or
+            # more branches are 4.7.
+            target_dir = target.parent.relative_to(dirpath, walk_up=True)
+            index_html = dirpath / "index.html"
+            lines = index_html.read_text().splitlines()
+
+            for i, line in enumerate(lines):
+                if match := re.match(r"^const GODOT_CONFIG = (.*);$", line):
+                    break
+            else:
+                logging.warning(
+                    "Could not find GODOT_CONFIG in %s",
+                    index_html.relative_to(dest_dir),
+                )
+                continue
+
+            # Although not all JavaScript source is valid JSON, we happen to
+            # know that Godot fills this value in using its JSON serializer.
+            config = json.loads(match.group(1))
+
+            # If mainPack is not explicitly set, it defaults to a path
+            # derived from executable, which we are about to change.
+            config.setdefault("mainPack", config["executable"] + ".pck")
+
+            # Overwrite the executable path (which is given without the .wasm
+            # suffix for some reason) and update the file size table (which uses
+            # the suffix).
+            exe = f"{str(target_dir)}/index"
+            config["executable"] = exe
+            config["fileSizes"][f"{exe}.wasm"] = config["fileSizes"].pop("index.wasm")
+
+            # Now patch the config file
+            config_json = json.dumps(config, separators=(",", ":"))
+            lines[i] = f"const GODOT_CONFIG = {config_json};"
+
+            logging.info(
+                "Updating %s: replacing index.wasm with %s",
+                index_html.relative_to(dest_dir),
+                target_dir / "index.wasm",
+            )
+            index_html.write_text("\n".join(lines))
+            deduplicated_bytes += path.stat().st_size
+            path.unlink()
+
+        return deduplicated_bytes
+
     def run(self) -> None:
         self.get_default_repo_details()
 
@@ -491,6 +566,8 @@ class AmalgamatePages:
 
             items.append(item)
 
+        deduplicated_bytes = self.deduplicate_godot_artifacts(dest_dir)
+
         if not have_toplevel_build:
             self.render_template(
                 "redirect.html", dest_dir / "index.html", {"target": "branches/"}
@@ -511,6 +588,7 @@ class AmalgamatePages:
                     else None
                 ),
                 "branches": items,
+                "deduplicated_bytes": deduplicated_bytes,
                 "generation_time": dt.datetime.now(tz=dt.timezone.utc),
                 "workflow_run_url": os.environ.get("WORKFLOW_RUN_URL"),
             },

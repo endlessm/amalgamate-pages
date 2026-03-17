@@ -112,6 +112,9 @@
     {%- if workflow_run_url -%}
     </a>
     {%- endif %}.
+    {% if deduplicated_bytes %}
+    {{ deduplicated_bytes | filesizeformat }} deduplicated.
+    {% endif %}
 </footer>
 </body>
 </html>

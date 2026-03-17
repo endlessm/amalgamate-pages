@@ -147,3 +147,12 @@ principle, it is generic enough to work for any project, and patches are welcome
 to improve this so long as they do not undermine our primary use! One current
 assumption is that we can place arbitrary files into a `branches` directory at
 the root of the website without interfering with the default web build.
+
+One Godot-specific feature is that `index.wasm` files that are identical in
+different builds are deduplicated. This is the WASM build of the Godot engine
+itself, which is large and typically does not change between branches.
+Deduplicating it may slightly improve the load time, but the real goal is to
+reduce the size of the amalgamated site, since GitHub Pages has a soft 1 GB
+limit. GitHub Pages does not support redirects, so the `index.html` files must
+be patched in a Godot-specific way to instruct the loader to load the engine
+from a different path.
