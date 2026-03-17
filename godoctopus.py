@@ -473,7 +473,7 @@ class AmalgamatePages:
                     relative_path += "/"
                 item["relative_path"] = relative_path
 
-                build_url = self.base_url + str(branch_dir.relative_to(dest_dir))
+                build_url = self.base_url + str(branch_dir.relative_to(dest_dir)) + "/"
                 status.build_url = build_url
                 status.head_sha = branch.build.workflow_run["head_sha"]
                 statuses.append(status)
