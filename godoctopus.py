@@ -651,8 +651,18 @@ def update_status(
             can_set_status = set_status(api, repo, data.head_sha, data.build_url)
 
 
+def get_github_token() -> str:
+    if "GITHUB_TOKEN" in os.environ:
+        return os.environ["GITHUB_TOKEN"]
+
+    result = subprocess.run(
+        ["gh", "auth", "token"], check=True, capture_output=True, text=True
+    )
+    return result.stdout.strip()
+
+
 def main() -> None:
-    api_token = os.environ["GITHUB_TOKEN"]
+    api_token = get_github_token()
     repo = os.environ["GITHUB_REPOSITORY"]
 
     setup_logging()
