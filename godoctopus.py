@@ -303,8 +303,11 @@ class AmalgamatePages:
 
         return artifacts
 
-    def get_latest_built_release(self) -> Release | None:
-        """Fetches data on the latest release that has an asset that looks like a web build."""
+    def get_latest_built_releases(self) -> tuple[Release | None, Release | None]:
+        """Fetches data on the latest release that has an asset that looks like a web build.
+
+        Returns a 2-tuple of the latest final release (if any) and the latest
+        pre-release newer than the final release (if any)."""
         name_suffix = f"-{self.artifact_name}.zip"
         content_type = "application/zip"
 
@@ -312,30 +315,27 @@ class AmalgamatePages:
             "Finding latest release with an asset whose name ends with '%s'",
             name_suffix,
         )
+        prerelease = None
 
-        # https://docs.github.com/en/rest/releases/releases?apiVersion=2022-11-28#get-the-latest-release
-        # does not allow you to fetch the latest prerelease, and currently all
-        # releases in Threadbare are prereleases.
         for release in self.api.paginate(f"{API}/repos/{self.default_repo}/releases"):
             if release["draft"]:
                 continue
-
-            # TODO: Add a parameter to control whether pre-releases are used?
 
             for asset in release["assets"]:
                 if (
                     asset["name"].endswith(name_suffix)
                     and asset["content_type"] == content_type
                 ):
-                    logging.info(
-                        "Found suitable asset %s in release %s",
-                        asset["name"],
-                        release["name"],
-                    )
-                    return Release(release, asset)
+                    if not release["prerelease"]:
+                        logging.info("Found latest stable release %s", release["name"])
+                        return Release(release, asset), prerelease
+                    elif not prerelease:
+                        logging.info("Found prerelease %s", release["name"])
+                        prerelease = Release(release, asset)
+                    break
 
-        logging.info("No suitable release/asset found")
-        return None
+        logging.info("No suitable stable release/asset found")
+        return None, prerelease
 
     def download_and_extract(
         self,
@@ -402,8 +402,10 @@ class AmalgamatePages:
     def run(self) -> None:
         self.get_default_repo_details()
 
-        latest_release = self.get_latest_built_release()
+        latest_release, prerelease = self.get_latest_built_releases()
         latest_release_size: int | None = None
+        prerelease_dir: pathlib.Path | None = None
+        prerelease_size: int | None = None
 
         workflow = self.find_workflow()
         web_artifacts = self.find_latest_artifacts(workflow["id"])
@@ -419,6 +421,15 @@ class AmalgamatePages:
         if latest_release is not None:
             latest_release_size = self.download_release(latest_release, dest_dir)
             have_toplevel_build = True
+
+        if prerelease is not None:
+            if have_toplevel_build:
+                prerelease_dir = dest_dir / "prerelease"
+                prerelease_dir.mkdir()
+            else:
+                prerelease_dir = dest_dir
+                have_toplevel_build = True
+            prerelease_size = self.download_release(prerelease, prerelease_dir)
 
         statuses: list[StatusData] = []
         items = []
@@ -492,6 +503,13 @@ class AmalgamatePages:
                 "repo_details": self.repo_details,
                 "latest_release": latest_release,
                 "latest_release_size": latest_release_size,
+                "prerelease": prerelease,
+                "prerelease_size": prerelease_size,
+                "prerelease_dir": (
+                    str(prerelease_dir.relative_to(branches_dir, walk_up=True)) + "/"
+                    if prerelease_dir
+                    else None
+                ),
                 "branches": items,
                 "generation_time": dt.datetime.now(tz=dt.timezone.utc),
                 "workflow_run_url": os.environ.get("WORKFLOW_RUN_URL"),

@@ -8,11 +8,15 @@ The action finds the latest build artifact for all live branches in the repo,
 plus any builds for pull requests from forks, and places them beneath a
 `branches/` directory of the site, with an index in that directory.
 
-The newest-available asset attached to a published release (which may be a
-pre-release) is placed at the root of the site. If no such asset is found, the
-build artifact for the default branch is placed at the root of the site. If no
-such artifact is available, the root of the site redirects to the index of
-branches.
+If a stable (i.e. non-draft, non-prerelease) release with an appropriate asset
+is present, it is placed at the root of the site. The latest of any newer
+pre-releases is placed in a `prerelease/` directory. If no stable release is
+found, but a pre-release is, the pre-release will be placed at the root of the
+site instead.
+
+If neither a stable release nor pre-release is found, the build artifact for the
+default branch is placed at the root of the site. If no such artifact is
+available, the root of the site redirects to the index of branches.
 
 ## Example
 

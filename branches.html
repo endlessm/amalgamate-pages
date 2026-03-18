@@ -28,6 +28,23 @@
         </span>
     </li>
 {% endif %}
+{% if prerelease %}
+    <li>
+        <b><a href="{{ prerelease_dir }}" title="Play this pre-release">Pre-release: {{ prerelease.data.name }} ▶️</a></b>
+        <br/>
+        <span class="build">
+            Built on
+            <time datetime="{{ prerelease.asset.updated_at }}">{{
+                prerelease.asset.updated_at | from_iso8601 | pretty_datetime
+            }}</time>
+            from tag
+            <a href="{{ prerelease.data.html_url }}">{{
+                prerelease.data.tag_name
+            }}</a>
+            ({{ prerelease_size | filesizeformat }})
+        </span>
+    </li>
+{% endif %}
 {% for branch in branches %}
 {% set title %}
     {%- if branch.is_default -%}
