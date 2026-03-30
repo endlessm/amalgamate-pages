@@ -42,7 +42,7 @@ runs:
         path: ${{ steps.assemble.outputs.path }}
 
     - name: Deploy to GitHub Pages
-      uses: actions/deploy-pages@v4
+      uses: actions/deploy-pages@v5
 
     - name: Update build statuses
       shell: bash
