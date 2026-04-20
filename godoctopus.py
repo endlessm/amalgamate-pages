@@ -15,6 +15,7 @@ import tempfile
 import zipfile
 from hashlib import sha256
 from typing import Any, Iterator, Self
+from urllib.parse import quote
 
 import jinja2
 import requests
@@ -559,7 +560,10 @@ class AmalgamatePages:
                     relative_path += "/"
                 item["relative_path"] = relative_path
 
-                build_url = self.base_url + str(branch_dir.relative_to(dest_dir)) + "/"
+                build_url = "{}{}/".format(
+                    self.base_url,
+                    quote(str(branch_dir.relative_to(dest_dir))),
+                )
                 status.build_url = build_url
                 status.head_sha = branch.build.workflow_run["head_sha"]
                 statuses.append(status)
