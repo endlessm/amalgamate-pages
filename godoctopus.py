@@ -550,7 +550,7 @@ class AmalgamatePages:
                     branch_dir.mkdir(parents=True)
 
                 item["size"] = self.download_and_extract(url, branch_dir)
-                relative_path = str(branch_dir.relative_to(branches_dir))
+                relative_path = str(branch_dir.relative_to(branches_dir, walk_up=True))
                 # The trailing slash is significant. GitHub Pages serves a
                 # redirect to the trailing-slash version, but in the edge case
                 # where the directory name contains a character that must be
