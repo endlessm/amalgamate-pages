@@ -254,6 +254,10 @@ class AmalgamatePages:
 
     def find_latest_artifacts(self, workflow_id: int) -> dict[str, Fork]:
         artifacts: dict[str, Fork] = {}
+        # The runs of each branch are collected first, and only sorted and
+        # inspected afterwards.
+        runs_by_branch: dict[tuple[str, str], list[dict]] = {}
+
         for run in self.api.paginate(
             f"{API}/repos/{self.default_repo}/actions/workflows/{workflow_id}/runs",
             params={"status": "success"},
@@ -280,9 +284,7 @@ class AmalgamatePages:
                 artifacts[owner_label] = fork
 
             branch_name = run["head_branch"]
-            try:
-                branch = fork.live_branches[branch_name]
-            except KeyError:
+            if branch_name not in fork.live_branches:
                 logging.debug(
                     "Ignoring artifact for deleted branch %s/%s",
                     owner_label,
@@ -290,15 +292,29 @@ class AmalgamatePages:
                 )
                 continue
 
-            if not branch.build or branch.build.artifact["expired"]:
+            runs_by_branch.setdefault((owner_label, branch_name), []).append(run)
+
+        for (owner_label, branch_name), runs in runs_by_branch.items():
+            branch = artifacts[owner_label].live_branches[branch_name]
+            # The timestamps are UTC and all in the same format, so sorting them
+            # as strings orders the runs by recency.
+            runs.sort(key=lambda run: run["created_at"], reverse=True)
+
+            for run in runs:
                 artifact = self.find_artifact(run["artifacts_url"])
                 if not artifact:
                     continue
 
-                if not branch.build or (
-                    branch.build.artifact["expired"] and not artifact["expired"]
-                ):
+                if not branch.build:
+                    # Keep the most recent build even if its artifact has
+                    # expired, so that the branch is still listed, and carry on
+                    # looking for one that can still be downloaded.
                     branch.build = Build(workflow_run=run, artifact=artifact)
+
+                if not artifact["expired"]:
+                    branch.build = Build(workflow_run=run, artifact=artifact)
+                    break
+
                 # TODO: You might hope that you could fetch
                 # https://api.github.com/repos/{repo}/actions/runs/{artifact['workflow_run']['id']}
                 # and inspect the pull_requests property to find the corresponding PR for each branch.
