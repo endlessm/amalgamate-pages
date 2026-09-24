@@ -252,12 +252,25 @@ class AmalgamatePages:
                 return artifact
         return None
 
+    @staticmethod
+    def supersedes(run: dict, artifact: dict, build: Build | None) -> bool:
+        """Whether `run`'s `artifact` is a better choice than `build`."""
+        if build is None:
+            return True
+
+        # An artifact that can still be downloaded beats an expired one,
+        # however old it is.
+        if artifact["expired"] != build.artifact["expired"]:
+            return build.artifact["expired"]
+
+        # Otherwise the most recent run wins. The runs happen to be returned
+        # most recent first, but that order is not documented, and relying on it
+        # published a week-old build for a branch that had been rebuilt minutes
+        # earlier.
+        return run["created_at"] > build.workflow_run["created_at"]
+
     def find_latest_artifacts(self, workflow_id: int) -> dict[str, Fork]:
         artifacts: dict[str, Fork] = {}
-        # The runs of each branch are collected first, and only sorted and
-        # inspected afterwards.
-        runs_by_branch: dict[tuple[str, str], list[dict]] = {}
-
         for run in self.api.paginate(
             f"{API}/repos/{self.default_repo}/actions/workflows/{workflow_id}/runs",
             params={"status": "success"},
@@ -284,7 +297,9 @@ class AmalgamatePages:
                 artifacts[owner_label] = fork
 
             branch_name = run["head_branch"]
-            if branch_name not in fork.live_branches:
+            try:
+                branch = fork.live_branches[branch_name]
+            except KeyError:
                 logging.debug(
                     "Ignoring artifact for deleted branch %s/%s",
                     owner_label,
@@ -292,34 +307,26 @@ class AmalgamatePages:
                 )
                 continue
 
-            runs_by_branch.setdefault((owner_label, branch_name), []).append(run)
+            if (
+                branch.build
+                and not branch.build.artifact["expired"]
+                and run["created_at"] <= branch.build.workflow_run["created_at"]
+            ):
+                # A usable build from a more recent run is already known, so
+                # there is no need to ask the API about this run's artifacts.
+                continue
 
-        for (owner_label, branch_name), runs in runs_by_branch.items():
-            branch = artifacts[owner_label].live_branches[branch_name]
-            # The timestamps are UTC and all in the same format, so sorting them
-            # as strings orders the runs by recency.
-            runs.sort(key=lambda run: run["created_at"], reverse=True)
+            artifact = self.find_artifact(run["artifacts_url"])
+            if not artifact:
+                continue
 
-            for run in runs:
-                artifact = self.find_artifact(run["artifacts_url"])
-                if not artifact:
-                    continue
-
-                if not branch.build:
-                    # Keep the most recent build even if its artifact has
-                    # expired, so that the branch is still listed, and carry on
-                    # looking for one that can still be downloaded.
-                    branch.build = Build(workflow_run=run, artifact=artifact)
-
-                if not artifact["expired"]:
-                    branch.build = Build(workflow_run=run, artifact=artifact)
-                    break
-
-                # TODO: You might hope that you could fetch
-                # https://api.github.com/repos/{repo}/actions/runs/{artifact['workflow_run']['id']}
-                # and inspect the pull_requests property to find the corresponding PR for each branch.
-                # But as discussed at https://github.com/orgs/community/discussions/25220 that
-                # property is always empty for builds from forks.
+            if self.supersedes(run, artifact, branch.build):
+                branch.build = Build(workflow_run=run, artifact=artifact)
+            # TODO: You might hope that you could fetch
+            # https://api.github.com/repos/{repo}/actions/runs/{artifact['workflow_run']['id']}
+            # and inspect the pull_requests property to find the corresponding PR for each branch.
+            # But as discussed at https://github.com/orgs/community/discussions/25220 that
+            # property is always empty for builds from forks.
 
         return artifacts
 
