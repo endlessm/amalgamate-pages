@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import collections.abc
 import dataclasses
 import datetime as dt
 import json
@@ -13,8 +12,9 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
+from collections.abc import Iterator, KeysView
 from hashlib import sha256
-from typing import Any, Iterator, Self
+from typing import Any, Self
 from urllib.parse import quote
 
 import jinja2
@@ -140,7 +140,7 @@ class GitHubApi:
             params = None
 
 
-def lead_sorted(seq: collections.abc.KeysView[str], first: str) -> list[str]:
+def lead_sorted(seq: KeysView[str], first: str) -> list[str]:
     """Return a list with `first` at the front if present, followed by the rest sorted."""
     if first in seq:
         return [first] + sorted(seq - {first})
@@ -430,7 +430,7 @@ class AmalgamatePages:
         """Assuming each branch is a Godot web build named
         index.{html,pck,wasm}, deduplicates index.wasm where possible. Gnarly
         but functional."""
-        wasms = {}
+        wasms: dict[str, pathlib.Path] = {}
         deduplicated_bytes = 0
 
         for dirpath, _dirnames, filenames in dest_dir.walk():
