@@ -28,8 +28,90 @@ COMMENT_TAG = "<!--amalgamate-pages-->"
 STATUS_CONTEXT = "Publish Web Build"
 STATUS_SUCCESS_DESCRIPTION = "Test this branch"
 
+GITHUB_ACTIONS_APP_ID = 15368
+# How many commits to examine, working back from the head of a branch that is
+# not the head of a pull request, when looking for its most recent build.
+MAX_HISTORY_DEPTH = 50
+HISTORY_PAGE_SIZE = 25
+# How many pages of a pull request's timeline to examine when looking for
+# builds of its previous head commits.
+MAX_TIMELINE_PAGES = 5
+TIMELINE_PAGE_SIZE = 100
+
+# The GitHub Actions check suites (each of which corresponds to one workflow
+# run) for a commit. These must be queried via the default repository: check
+# suites are scoped to the repository they are queried through, so querying a
+# fork's commit via the fork would miss the builds for its pull request.
+BUILDS_FRAGMENT = """
+fragment Builds on Commit {
+  oid
+  checkSuites(first: 100, filterBy: {appId: $appId}) {
+    nodes {
+      conclusion
+      branch { name }
+      workflowRun { databaseId event workflow { databaseId } }
+    }
+  }
+}
+"""
+
+# Finds the builds of a commit and its ancestors.
+HISTORY_BUILDS_QUERY = """
+query(
+  $owner: String!, $name: String!, $oid: GitObjectID!,
+  $first: Int!, $after: String, $appId: Int!
+) {
+  repository(owner: $owner, name: $name) {
+    object(oid: $oid) {
+      ... on Commit {
+        history(first: $first, after: $after) {
+          pageInfo { hasNextPage endCursor }
+          nodes { ...Builds }
+        }
+      }
+    }
+  }
+}
+""" + BUILDS_FRAGMENT
+
+# Finds the builds of a pull request's head commit, and of every commit that
+# has been its head. Commits that were added by a normal push appear in the
+# timeline as PullRequestCommit items, but only while they are part of the
+# pull request: after a force-push, the only trace of the previous head is the
+# HeadRefForcePushedEvent. The timeline is not in push order, so the caller
+# must not rely on the order of these items.
+PULL_REQUEST_BUILDS_QUERY = """
+query(
+  $owner: String!, $name: String!, $number: Int!, $head: GitObjectID!,
+  $last: Int!, $before: String, $appId: Int!
+) {
+  repository(owner: $owner, name: $name) {
+    head: object(oid: $head) { ...Builds }
+    pullRequest(number: $number) {
+      timelineItems(
+        last: $last, before: $before,
+        itemTypes: [PULL_REQUEST_COMMIT, HEAD_REF_FORCE_PUSHED_EVENT]
+      ) {
+        pageInfo { hasPreviousPage startCursor }
+        nodes {
+          ... on PullRequestCommit { commit { ...Builds } }
+          ... on HeadRefForcePushedEvent {
+            beforeCommit { ...Builds }
+            afterCommit { ...Builds }
+          }
+        }
+      }
+    }
+  }
+}
+""" + BUILDS_FRAGMENT
+
 
 class ConfigurationError(Exception):
+    pass
+
+
+class GraphQLError(Exception):
     pass
 
 
@@ -138,6 +220,16 @@ class GitHubApi:
                 break
             url = response.links["next"]["url"]
             params = None
+
+    def graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+        response = self.session.post(
+            f"{API}/graphql", json={"query": query, "variables": variables}
+        )
+        response.raise_for_status()
+        j = response.json()
+        if j.get("errors"):
+            raise GraphQLError(j["errors"])
+        return j["data"]
 
 
 def lead_sorted(seq: collections.abc.KeysView[str], first: str) -> list[str]:
@@ -253,82 +345,258 @@ class AmalgamatePages:
         return None
 
     @staticmethod
-    def supersedes(run: dict, artifact: dict, build: Build | None) -> bool:
-        """Whether `run`'s `artifact` is a better choice than `build`."""
-        if build is None:
-            return True
+    def successful_run_ids(
+        commit: dict[str, Any], branch: Branch, is_fork: bool, workflow_id: int
+    ) -> set[int]:
+        """IDs of the workflow runs among `commit`'s check suites that might be
+        successful builds of `branch`."""
+        return {
+            suite["workflowRun"]["databaseId"]
+            for suite in commit["checkSuites"]["nodes"]
+            if suite["conclusion"] == "SUCCESS"
+            and suite["workflowRun"]
+            and suite["workflowRun"]["workflow"]["databaseId"] == workflow_id
+            # Workflows only run on branches from forks when a pull request is
+            # opened. Filtering on this avoids fetching the details of builds
+            # of the default branch that share commits with a fork's branch.
+            and (
+                not is_fork
+                or suite["workflowRun"]["event"]
+                in ("pull_request", "pull_request_target")
+            )
+            # The check suite's branch is a ref in the default repo, so it is
+            # null for fork branches whose name does not also exist in the
+            # default repo. When present it can rule out builds of other
+            # branches that share this commit (e.g. main) without an extra API
+            # call.
+            and (suite["branch"] is None or suite["branch"]["name"] == branch.name)
+        }
 
-        # An artifact that can still be downloaded beats an expired one,
-        # however old it is.
-        if artifact["expired"] != build.artifact["expired"]:
-            return build.artifact["expired"]
+    def build_from_runs(
+        self, repo: str, branch: Branch, run_ids: set[int]
+    ) -> Build | None:
+        """Returns the build from the most recent of `run_ids` that built
+        `branch` of `repo` and has an artifact."""
+        # Run IDs are allocated in increasing order.
+        for run_id in sorted(run_ids, reverse=True):
+            response = self.api.session.get(
+                f"{API}/repos/{self.default_repo}/actions/runs/{run_id}"
+            )
+            response.raise_for_status()
+            run = response.json()
 
-        # Otherwise the most recent run wins. The runs happen to be returned
-        # most recent first, but that order is not documented, and relying on it
-        # published a week-old build for a branch that had been rebuilt minutes
-        # earlier.
-        return run["created_at"] > build.workflow_run["created_at"]
-
-    def find_latest_artifacts(self, workflow_id: int) -> dict[str, Fork]:
-        artifacts: dict[str, Fork] = {}
-        for run in self.api.paginate(
-            f"{API}/repos/{self.default_repo}/actions/workflows/{workflow_id}/runs",
-            params={"status": "success"},
-            item_key="workflow_runs",
-        ):
+            # A fork's main branch and the default repo's main branch are both
+            # "main", so check the repository too.
             head_repository = run["head_repository"]
-            if head_repository is None:
-                logging.debug(
-                    "Ignoring workflow run %s from deleted fork",
-                    run["html_url"],
-                )
-                continue
-
-            owner_label = head_repository["owner"]["login"]
-            try:
-                fork = artifacts[owner_label]
-            except KeyError:
-                fork = Fork(
-                    live_branches={
-                        branch["name"]: Branch(info=branch, build=None)
-                        for branch in self.list_branches(head_repository["full_name"])
-                    }
-                )
-                artifacts[owner_label] = fork
-
-            branch_name = run["head_branch"]
-            try:
-                branch = fork.live_branches[branch_name]
-            except KeyError:
-                logging.debug(
-                    "Ignoring artifact for deleted branch %s/%s",
-                    owner_label,
-                    branch_name,
-                )
-                continue
-
             if (
-                branch.build
-                and not branch.build.artifact["expired"]
-                and run["created_at"] <= branch.build.workflow_run["created_at"]
+                run["head_branch"] != branch.name
+                or head_repository is None
+                or head_repository["full_name"] != repo
             ):
-                # A usable build from a more recent run is already known, so
-                # there is no need to ask the API about this run's artifacts.
                 continue
 
             artifact = self.find_artifact(run["artifacts_url"])
-            if not artifact:
+            if artifact:
+                return Build(workflow_run=run, artifact=artifact)
+
+        return None
+
+    def find_build_in_history(
+        self, repo: str, branch: Branch, workflow_id: int
+    ) -> Build | None:
+        """Works back through the history of `branch` from its head commit,
+        returning the build of the most recent commit that was built on this
+        branch. This is only suitable for branches that are not force-pushed."""
+        head_sha = branch.info["commit"]["sha"]
+        owner, name = self.default_repo.split("/")
+        is_fork = repo != self.default_repo
+        variables: dict[str, Any] = {
+            "owner": owner,
+            "name": name,
+            "oid": head_sha,
+            "first": HISTORY_PAGE_SIZE,
+            "after": None,
+            "appId": GITHUB_ACTIONS_APP_ID,
+        }
+        examined = 0
+
+        while examined < MAX_HISTORY_DEPTH:
+            data = self.api.graphql(HISTORY_BUILDS_QUERY, variables)
+            commit = data["repository"]["object"]
+            if commit is None:
+                logging.warning(
+                    "Head commit %s of %s:%s not found in %s",
+                    head_sha,
+                    repo,
+                    branch.name,
+                    self.default_repo,
+                )
+                return None
+
+            history = commit["history"]
+            for node in history["nodes"]:
+                examined += 1
+                run_ids = self.successful_run_ids(node, branch, is_fork, workflow_id)
+                if build := self.build_from_runs(repo, branch, run_ids):
+                    return build
+
+            if not history["pageInfo"]["hasNextPage"]:
+                break
+            variables["after"] = history["pageInfo"]["endCursor"]
+
+        logging.debug(
+            "No build found in the last %d commits of %s:%s",
+            examined,
+            repo,
+            branch.name,
+        )
+        return None
+
+    def find_build_in_pull_request(
+        self, repo: str, branch: Branch, workflow_id: int, pull_request: PullRequest
+    ) -> Build | None:
+        """Returns the build of the head of `branch` if there is one, or else
+        the most recent build of any commit that has been the head of
+        `pull_request`, which may since have been force-pushed away."""
+        head_sha = branch.info["commit"]["sha"]
+        owner, name = self.default_repo.split("/")
+        is_fork = repo != self.default_repo
+        variables: dict[str, Any] = {
+            "owner": owner,
+            "name": name,
+            "number": pull_request["number"],
+            "head": head_sha,
+            "last": TIMELINE_PAGE_SIZE,
+            "before": None,
+            "appId": GITHUB_ACTIONS_APP_ID,
+        }
+        head_run_ids: set[int] = set()
+        run_ids: set[int] = set()
+
+        for page in range(MAX_TIMELINE_PAGES):
+            data = self.api.graphql(PULL_REQUEST_BUILDS_QUERY, variables)["repository"]
+
+            if page == 0:
+                head = data["head"]
+                if head is None:
+                    logging.warning(
+                        "Head commit %s of %s:%s not found in %s",
+                        head_sha,
+                        repo,
+                        branch.name,
+                        self.default_repo,
+                    )
+                    return None
+
+                head_run_ids = self.successful_run_ids(
+                    head, branch, is_fork, workflow_id
+                )
+                if build := self.build_from_runs(repo, branch, head_run_ids):
+                    return build
+
+            timeline = data["pullRequest"]["timelineItems"]
+            for item in timeline["nodes"]:
+                # Any of these may be null if the commit no longer exists.
+                for key in ("commit", "beforeCommit", "afterCommit"):
+                    if commit := item.get(key):
+                        run_ids |= self.successful_run_ids(
+                            commit, branch, is_fork, workflow_id
+                        )
+
+            if not timeline["pageInfo"]["hasPreviousPage"]:
+                break
+            variables["before"] = timeline["pageInfo"]["startCursor"]
+
+        return self.build_from_runs(repo, branch, run_ids - head_run_ids)
+
+    def find_latest_build(
+        self,
+        repo: str,
+        branch: Branch,
+        workflow_id: int,
+        pull_request: PullRequest | None,
+    ) -> Build | None:
+        """Finds the most recent successful build of `branch` of `repo`, which
+        may be the default repo or a fork of it. `pull_request` is the open pull
+        request for the branch, if any.
+
+        Rather than listing the workflow's runs, which sometimes returns stale
+        data (https://github.com/orgs/community/discussions/206725), this starts
+        from the branch's head commit. This means that a build of an old commit
+        cannot be mistaken for the latest build, and that if the latest commit
+        has not been built (yet) we can say so.
+
+        A build is returned even if its artifact has expired: artifacts from
+        older builds will have expired too."""
+        if pull_request:
+            build = self.find_build_in_pull_request(
+                repo, branch, workflow_id, pull_request
+            )
+        else:
+            build = self.find_build_in_history(repo, branch, workflow_id)
+
+        head_sha = branch.info["commit"]["sha"]
+        if build and build.workflow_run["head_sha"] != head_sha:
+            logging.warning(
+                "Head commit %s of %s:%s has not been built; using build of %s from %s",
+                head_sha[:7],
+                repo,
+                branch.name,
+                build.workflow_run["head_sha"][:7],
+                build.workflow_run["html_url"],
+            )
+
+        return build
+
+    def find_latest_builds(
+        self,
+        workflow_id: int,
+        pull_requests: dict[str, PullRequest],
+    ) -> dict[str, Fork]:
+        # The build workflow only runs in the default repo, but it builds
+        # branches from forks when a pull request is opened from them. So the
+        # only forks worth considering are those with pull requests.
+        repos = {self.default_org: self.default_repo}
+        for pr in pull_requests.values():
+            head_repo = pr["head"]["repo"]
+            if head_repo is None:
+                logging.debug(
+                    "Ignoring pull request %s from deleted fork", pr["html_url"]
+                )
                 continue
+            repos.setdefault(head_repo["owner"]["login"], head_repo["full_name"])
 
-            if self.supersedes(run, artifact, branch.build):
-                branch.build = Build(workflow_run=run, artifact=artifact)
-            # TODO: You might hope that you could fetch
-            # https://api.github.com/repos/{repo}/actions/runs/{artifact['workflow_run']['id']}
-            # and inspect the pull_requests property to find the corresponding PR for each branch.
-            # But as discussed at https://github.com/orgs/community/discussions/25220 that
-            # property is always empty for builds from forks.
+        forks: dict[str, Fork] = {}
+        for owner, repo in repos.items():
+            fork = Fork(
+                live_branches={
+                    info["name"]: Branch(info=info, build=None)
+                    for info in self.list_branches(repo)
+                }
+            )
+            forks[owner] = fork
 
-        return artifacts
+            for branch in fork.live_branches.values():
+                is_default = (
+                    owner == self.default_org and branch.name == self.default_branch
+                )
+                branch_pr = pull_requests.get(f"{owner}:{branch.name}")
+                if branch_pr is None and owner != self.default_org:
+                    # Never built.
+                    continue
+                if branch_pr and branch_pr["state"] == "closed" and not is_default:
+                    # This branch will be ignored anyway, so don't spend API
+                    # calls on finding its build.
+                    continue
+
+                branch.build = self.find_latest_build(
+                    repo,
+                    branch,
+                    workflow_id,
+                    branch_pr if branch_pr and branch_pr["state"] == "open" else None,
+                )
+
+        return forks
 
     def get_latest_built_releases(self) -> tuple[Release | None, Release | None]:
         """Fetches data on the latest release that has an asset that looks like a web build.
@@ -415,7 +683,12 @@ class AmalgamatePages:
             branch_names = fork.live_branches.keys()
             for branch_name in lead_sorted(branch_names, self.default_branch):
                 branch = fork.live_branches[branch_name]
-                if not branch.build and org != self.default_org:
+                pull_request = pull_requests.get(f"{org}:{branch.name}")
+                # Builds are not looked up for branches whose pull request is
+                # closed, but they must still be yielded so that the pull
+                # request's comment is updated.
+                is_closed = pull_request and pull_request["state"] == "closed"
+                if not branch.build and not is_closed and org != self.default_org:
                     logging.debug(
                         "Ignoring never-built third-party branch %s:%s",
                         org,
@@ -423,7 +696,6 @@ class AmalgamatePages:
                     )
                     continue
 
-                pull_request = pull_requests.get(f"{org}:{branch.name}")
                 yield org, branch, pull_request
 
     def deduplicate_godot_artifacts(self, dest_dir: pathlib.Path) -> int:
@@ -507,8 +779,8 @@ class AmalgamatePages:
         prerelease_size: int | None = None
 
         workflow = self.find_workflow()
-        web_artifacts = self.find_latest_artifacts(workflow["id"])
         pull_requests = self.list_pull_requests()
+        web_artifacts = self.find_latest_builds(workflow["id"], pull_requests)
 
         dest_dir = pathlib.Path(__file__).parent / "_build"
         shutil.rmtree(dest_dir, ignore_errors=True)

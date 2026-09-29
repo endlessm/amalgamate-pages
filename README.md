@@ -142,6 +142,13 @@ site. Instead, the branches index will show the date on which it expired.
 Manually triggering the build workflow on that branch, or pushing a new commit
 to trigger a build, will restore it.
 
+For a branch with an open pull request, the build of the branch's latest
+commit is used; if that commit has not been built, the most recent build of
+any commit that has previously been the head of the pull request is used
+instead. For other branches, such as the default branch, only the latest 50
+commits on the branch are searched for a build. If none of them has been built
+on that branch, the branch will be listed as never built.
+
 Our primary use-case for this tool is for web builds of Godot game projects. In
 principle, it is generic enough to work for any project, and patches are welcome
 to improve this so long as they do not undermine our primary use! One current
