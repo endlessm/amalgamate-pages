@@ -132,6 +132,37 @@ The important elements are:
    by the branch deletion and again by the `main` branch being built after the
    merge.
 
+### Customizing the wording
+
+By default, the pull request comment and branch index page are worded for
+games. If your project is something else, like a website, you can adjust them
+with these optional inputs:
+
+- `comment`: set to `false` to stop commenting on pull requests. The commit
+  status still links to each branch's build, and the workflow no longer needs
+  `pull-requests: write`.
+- `comment_template`: the Markdown body of the pull request comment, as a
+  [Jinja2](https://jinja.palletsprojects.com/) template. `url` is the link to
+  the branch's build, or empty once the build is no longer available.
+- `branches_title`: the heading of the branch index page, which is followed by
+  "from" and a link to the repository. Defaults to "Playable branches".
+
+For example:
+
+```yaml
+      - uses: endlessm/amalgamate-pages@v2
+        with:
+          workflow_name: "Build site"
+          artifact_name: "web"
+          branches_title: "Previews of branches"
+          comment_template: |
+            {% if url %}
+            Preview this branch at {{ url }}.
+            {% else %}
+            _Preview no longer available._
+            {% endif %}
+```
+
 ## Limitations
 
 Any branch for which an artifact is found will be included in the amalgamated
