@@ -430,7 +430,7 @@ class AmalgamatePages:
         """Assuming each branch is a Godot web build named
         index.{html,pck,wasm}, deduplicates index.wasm where possible. Gnarly
         but functional."""
-        wasms = {}
+        wasms: dict[str, pathlib.Path] = {}
         deduplicated_bytes = 0
 
         for dirpath, _dirnames, filenames in dest_dir.walk():
