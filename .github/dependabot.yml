@@ -1,6 +1,3 @@
-# https://docs.github.com/en/code-security/dependabot/working-with-dependabot/keeping-your-actions-up-to-date-with-dependabot
-# Set update schedule for GitHub Actions
-
 version: 2
 updates:
 
@@ -8,4 +5,9 @@ updates:
     directory: "/"
     schedule:
       # Check for updates to GitHub Actions every week
+      interval: "weekly"
+
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
       interval: "weekly"
