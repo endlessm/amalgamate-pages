@@ -55,17 +55,14 @@ If you do not work at Endless Access:
 
 ## Linting
 
-We use [pre-commit](https://pre-commit.com/) to run various checks, including
+We use [prek](https://prek.j178.dev/) to run various checks, including
 formatting the code with `black`.
 
-You may like to install `pre-commit` using `uv`:
+Install `prek` following [the instructions for your platform](https://prek.j178.dev/installation/)
+then run:
 
 ```bash
-uv tool install pre-commit
+prek install
 ```
 
-However you install it, install its hooks with:
-
-```bash
-pre-commit install
-```
+(If you have previously configured `pre-commit`, use `prek install -f`.)
