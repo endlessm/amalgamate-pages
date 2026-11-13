@@ -7,6 +7,23 @@ inputs:
   artifact_name:
     description: Name of the artifact produced by the workflow
     required: true
+  comment:
+    description: Whether to comment on pull requests with a link to the branch's build
+    required: false
+    default: 'true'
+  comment_template:
+    description: >-
+      Jinja2 template for the Markdown body of pull request comments, where
+      `url` is the link to the branch's build, or empty once the build is no
+      longer available. Defaults to a comment about playing a game.
+    required: false
+    default: ''
+  branches_title:
+    description: >-
+      Heading of the branch index page, followed by "from" and a link to the
+      repository
+    required: false
+    default: Playable branches
 runs:
   using: composite
   steps:
@@ -34,6 +51,7 @@ runs:
         GITHUB_REPOSITORY: ${{ github.repository }}
         WORKFLOW_NAME: ${{ inputs.workflow_name }}
         ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        BRANCHES_TITLE: ${{ inputs.branches_title }}
         WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
     - name: Upload pages artifact
@@ -52,3 +70,5 @@ runs:
       env:
         DEBUG: ${{ runner.debug }}
         GITHUB_TOKEN: ${{ github.token }}
+        COMMENT: ${{ inputs.comment }}
+        COMMENT_TEMPLATE: ${{ inputs.comment_template }}

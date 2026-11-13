@@ -605,6 +605,9 @@ class AmalgamatePages:
             branches_dir / "index.html",
             {
                 "repo_details": self.repo_details,
+                "branches_title": (
+                    os.environ.get("BRANCHES_TITLE") or "Playable branches"
+                ),
                 "latest_release": latest_release,
                 "latest_release_size": latest_release_size,
                 "prerelease": prerelease,
@@ -755,13 +758,29 @@ def set_status(
     return True
 
 
+def parse_bool(name: str, default: bool) -> bool:
+    match os.environ.get(name, "").strip().lower():
+        case "":
+            return default
+        case "true":
+            return True
+        case "false":
+            return False
+        case value:
+            raise ConfigurationError(f"{name} must be true or false, not {value!r}")
+
+
 def update_status(
     api: GitHubApi,
     repo: str,
     args: argparse.Namespace,
 ) -> None:
-    template = make_jinja2_env().get_template("comment.md")
-    can_comment = True
+    jinja_env = make_jinja2_env()
+    if template_source := os.environ.get("COMMENT_TEMPLATE", "").strip():
+        template = jinja_env.from_string(template_source)
+    else:
+        template = jinja_env.get_template("comment.md")
+    can_comment = parse_bool("COMMENT", default=True)
     can_set_status = True
 
     for data in StatusData.load():
