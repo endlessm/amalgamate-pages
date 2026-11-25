@@ -59,7 +59,36 @@ runs:
       with:
         path: ${{ steps.assemble.outputs.path }}
 
+    # deploy-pages sometimes doesn't find the artifact uploaded just before it,
+    # and fails with 'No artifacts named "github-pages" were found':
+    # https://github.com/actions/deploy-pages/issues/451
+    # Re-running the job can't recover from it, because the re-run uploads a
+    # second artifact with the same name. So retry the deploy step here, after
+    # waiting longer each time. The lookup happens before the deployment is
+    # created, so a failed lookup leaves nothing behind.
     - name: Deploy to GitHub Pages
+      id: deploy-1
+      uses: actions/deploy-pages@v5
+      continue-on-error: true
+
+    - name: Wait before retrying the deploy
+      if: steps.deploy-1.outcome == 'failure'
+      shell: bash
+      run: sleep 10
+
+    - name: Deploy to GitHub Pages (retry 1)
+      id: deploy-2
+      if: steps.deploy-1.outcome == 'failure'
+      uses: actions/deploy-pages@v5
+      continue-on-error: true
+
+    - name: Wait before retrying the deploy again
+      if: steps.deploy-2.outcome == 'failure'
+      shell: bash
+      run: sleep 60
+
+    - name: Deploy to GitHub Pages (retry 2)
+      if: steps.deploy-2.outcome == 'failure'
       uses: actions/deploy-pages@v5
 
     - name: Update build statuses
